@@ -437,7 +437,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
   // Unified Drag Start Helpers for Mouse / Touch / Pointer
   const handleStartDragCol = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, colId: string) => {
-    if (toolMode === 'wall') return;
+    if (toolMode === 'wall' || toolMode === 'opening') return;
     e.stopPropagation();
     setSelectedColId(colId);
     setSelectedWallId(null);
@@ -449,7 +449,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   };
 
   const handleStartDragWallBody = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, wall: WallItem) => {
-    if (toolMode === 'wall') return;
+    if (toolMode === 'wall' || toolMode === 'opening') return;
     e.stopPropagation();
     setSelectedWallId(wall.id);
     setSelectedColId(null);
@@ -475,7 +475,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
     wall: WallItem,
     handle: 'start' | 'end'
   ) => {
-    if (toolMode === 'wall') return;
+    if (toolMode === 'wall' || toolMode === 'opening') return;
     e.stopPropagation();
     setSelectedWallId(wall.id);
     setSelectedColId(null);
@@ -497,7 +497,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   };
 
   const handleStartDragOpening = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, opId: string) => {
-    if (toolMode === 'wall') return;
+    if (toolMode === 'wall' || toolMode === 'opening') return;
     e.stopPropagation();
     setSelectedOpeningId(opId);
     setSelectedColId(null);
@@ -509,7 +509,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   };
 
   const handleStartDragRoom = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, roomId: string) => {
-    if (toolMode === 'wall') return;
+    if (toolMode === 'wall' || toolMode === 'opening') return;
     e.stopPropagation();
     setSelectedRoomId(roomId);
     setSelectedColId(null);
@@ -1651,20 +1651,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 rounded-xl overflow-hidden border border-slate-800 shadow-2xl">
       {/* CAD Top Bar for Status & Export Controls */}
       <div className="bg-slate-950 px-2.5 py-1.5 border-b border-slate-800 flex items-center justify-between gap-2 overflow-x-auto text-xs shrink-0">
-        {/* Floor Height Input */}
-        <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-2 py-1 rounded-lg text-[11px] sm:text-xs shrink-0">
-          <Layers className="w-3.5 h-3.5 text-emerald-400" />
-          <span className="font-medium text-slate-300 hidden sm:inline">สูงชั้น:</span>
-          <input
-            type="number"
-            step="0.1"
-            min="1.5"
-            max="10.0"
-            value={floorPlan.floorHeight || 2.8}
-            onChange={(e) => handleCeilingHeightChange(parseFloat(e.target.value) || 2.8)}
-            className="w-12 sm:w-16 bg-slate-950 border border-slate-700 rounded text-emerald-300 px-1.5 py-0.5 text-center font-bold font-mono focus:outline-none focus:border-emerald-500"
-          />
-          <span className="text-slate-400 font-medium">m</span>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-slate-300">ผังโครงสร้าง {floorPlan.floorName || 'ชั้น 1'}</span>
         </div>
 
         {/* Action & Zoom Controls */}

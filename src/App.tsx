@@ -52,6 +52,22 @@ export default function App() {
 
   const floorPlan = floorPlansMap[activeFloorId] || floorPlansMap['floor_1'] || SAMPLE_PROJECT_1.floorPlan;
 
+  const activeFloorHeight = floorPlan.floorHeight || project.floorHeights?.[activeFloorId] || project.defaultFloorHeight || 3.2;
+
+  const handleUpdateActiveFloorHeight = (newHeight: number) => {
+    setFloorPlan({
+      ...floorPlan,
+      floorHeight: newHeight,
+    });
+    setProject((prev) => ({
+      ...prev,
+      floorHeights: {
+        ...(prev.floorHeights || {}),
+        [activeFloorId]: newHeight,
+      },
+    }));
+  };
+
   const setFloorPlan = (updated: FloorPlanData) => {
     setFloorPlansMap((prev) => ({
       ...prev,
@@ -205,6 +221,8 @@ export default function App() {
         onChangeTab={setActiveTab}
         activeFloorId={activeFloorId}
         onSelectFloor={handleSelectFloor}
+        activeFloorHeight={activeFloorHeight}
+        onUpdateActiveFloorHeight={handleUpdateActiveFloorHeight}
         onOpenMetaModal={() => setIsMetaModalOpen(true)}
         onOpenPrintView={(mode) => setPrintPreview({ isOpen: true, mode: mode || 'report' })}
         onLoadSample={handleLoadSample}

@@ -20,6 +20,8 @@ interface HeaderProps {
   onChangeTab: (tab: 'cad' | 'photos') => void;
   activeFloorId: string;
   onSelectFloor: (floorId: string) => void;
+  activeFloorHeight: number;
+  onUpdateActiveFloorHeight: (height: number) => void;
   onOpenMetaModal: () => void;
   onOpenPrintView: (mode: 'report' | 'plan') => void;
   onLoadSample: () => void;
@@ -32,6 +34,8 @@ export const Header: React.FC<HeaderProps> = ({
   onChangeTab,
   activeFloorId,
   onSelectFloor,
+  activeFloorHeight,
+  onUpdateActiveFloorHeight,
   onOpenMetaModal,
   onOpenPrintView,
   onLoadSample,
@@ -152,9 +156,25 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Floor Selection Bar (No Title, Just Options) */}
-      <div className="bg-slate-950/90 border-t border-slate-800 px-3 py-1.5 flex items-center justify-start gap-2 overflow-x-auto">
+      {/* Floor Selection Bar with Floor Height Controller */}
+      <div className="bg-slate-950/90 border-t border-slate-800 px-3 py-1.5 flex items-center justify-between gap-2 overflow-x-auto">
         <div className="flex items-center gap-1.5 overflow-x-auto">
+          {/* Floor Height Input for Active Floor */}
+          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg text-xs shrink-0 mr-2">
+            <Layers className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="text-slate-300 font-medium">สูงชั้นนี้:</span>
+            <input
+              type="number"
+              step="0.1"
+              min="1.5"
+              max="10.0"
+              value={activeFloorHeight}
+              onChange={(e) => onUpdateActiveFloorHeight(parseFloat(e.target.value) || 2.8)}
+              className="w-16 bg-slate-950 border border-slate-700 rounded text-emerald-300 px-1.5 py-0.5 text-center font-bold font-mono focus:outline-none focus:border-emerald-500"
+            />
+            <span className="text-slate-400 font-medium">m</span>
+          </div>
+
           {floors.map((fl) => {
             const isActive = activeFloorId === fl.id;
             return (
