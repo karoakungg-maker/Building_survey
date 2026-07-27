@@ -312,6 +312,7 @@ export default function App() {
         <PrintReportView
           project={project}
           floorPlan={floorPlan}
+          floorPlansMap={floorPlansMap}
           photos={photos}
           onClose={() => setPrintPreview({ ...printPreview, isOpen: false })}
           mode={printPreview.mode}

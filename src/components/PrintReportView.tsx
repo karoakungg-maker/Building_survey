@@ -10,6 +10,7 @@ import { Printer, Building, MapPin, X, Camera } from 'lucide-react';
 interface PrintReportViewProps {
   project: SurveyProject;
   floorPlan: FloorPlanData;
+  floorPlansMap?: Record<string, FloorPlanData>;
   photos: PhotoRecord[];
   onClose: () => void;
   mode?: 'report' | 'plan';
@@ -226,6 +227,7 @@ function calculateRoomInfo(room: RoomPin, floorPlan: FloorPlanData): CalculatedR
 export const PrintReportView: React.FC<PrintReportViewProps> = ({
   project,
   floorPlan,
+  floorPlansMap,
   photos,
   onClose,
   mode = 'report',
@@ -817,23 +819,6 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
 
       {/* Printable Paper A4 Container */}
       <div className="max-w-4xl mx-auto bg-white text-slate-900 p-8 rounded-xl shadow-2xl space-y-6 font-sans print:shadow-none print:rounded-none print:p-0">
-        {/* Document Header */}
-        <div className="border-b-2 border-slate-900 pb-4 flex justify-between items-start">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-widest text-slate-500 block">
-              STRUCTURAL & HERITAGE SURVEY REPORT
-            </span>
-            <h1 className="text-xl font-extrabold text-slate-900 mt-0.5">
-              รายงานผลการสำรวจและตรวจสอบสภาพโครงสร้างอาคาร
-            </h1>
-            <p className="text-xs text-slate-600 mt-1 font-semibold">{project.name}</p>
-          </div>
-
-          <div className="text-right text-xs space-y-1 font-mono">
-            <p className="text-slate-700 font-bold">วันที่สำรวจ: {project.surveyDate}</p>
-          </div>
-        </div>
-
         {/* Section 1: Metadata */}
         <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 p-4 rounded-lg border border-slate-200">
           <div className="space-y-1.5">
@@ -844,7 +829,13 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
               <strong className="text-slate-700">ประเภทโครงสร้าง:</strong> {project.buildingType}
             </p>
             <p>
-              <strong className="text-slate-700">จำนวนชั้น:</strong> {project.floorCount} ชั้น (ความสูงชั้น {floorPlan.floorHeight || project.defaultFloorHeight}m)
+              <strong className="text-slate-700">จำนวนชั้น:</strong> {project.floorCount} ชั้น ({
+                Array.from({ length: project.floorCount }, (_, i) => {
+                  const floorKey = `floor_${i + 1}`;
+                  const h = floorPlansMap?.[floorKey]?.floorHeight || project.floorHeights?.[floorKey] || floorPlan.floorHeight || project.defaultFloorHeight || 3.0;
+                  return `ชั้น ${i + 1}: ${h}m`;
+                }).join(', ')
+              })
             </p>
           </div>
 

@@ -1725,9 +1725,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
       </div>
 
       {/* Main Canvas Workspace with Left Vertical Menu & Right Inspector Sidebar */}
-      <div id="cad-canvas-workspace" className="flex-1 flex flex-col sm:flex-row relative overflow-hidden bg-slate-950">
+      <div id="cad-canvas-workspace" className="flex-1 flex flex-col sm:flex-row relative overflow-hidden bg-slate-950 h-full min-h-0">
         {/* Left Vertical Tool Menu */}
-        <div className="bg-slate-950 border-b sm:border-b-0 sm:border-r border-slate-800 p-1 flex sm:flex-col items-center gap-1 overflow-x-auto sm:overflow-y-auto shrink-0 z-20 shadow-lg">
+        <div className="bg-slate-950 border-b sm:border-b-0 sm:border-r border-slate-800 p-1 flex sm:flex-col items-center gap-1 overflow-x-auto sm:overflow-y-auto shrink-0 z-20 shadow-lg sm:h-full sm:max-h-full">
           <button
             onClick={() => handleToolModeChange('select')}
             className={`flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 sm:w-14 rounded-lg text-[10px] font-medium transition-all shrink-0 ${
@@ -3611,7 +3611,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
         </div>
 
         {/* Right Inspector Side Panel / Tool Drawer */}
-        <div className="w-full lg:w-80 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-3 lg:p-4 flex flex-col gap-3 lg:gap-4 max-h-[280px] lg:max-h-none overflow-y-auto shrink-0">
+        <div className="w-full lg:w-80 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-3 lg:p-4 flex flex-col gap-3 lg:gap-4 max-h-[280px] lg:max-h-full lg:h-full overflow-y-auto shrink-0">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-800 pb-2 lg:pb-3">
             <h3 className="font-semibold text-slate-200 text-xs sm:text-sm flex items-center gap-2">
