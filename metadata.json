@@ -1,0 +1,11 @@
+{
+  "name": "Remix: ระบบสำรวจและบันทึกข้อมูลโครงสร้างอาคารเก่า (StructSurvey Pro)",
+  "description": "ระบบสำรวจและบันทึกข้อมูลโครงสร้างอาคารเก่า ออกแบบแปลนกริด วางเสา ผนัง ประตู-หน้าต่าง ความสูงฝ้า แนบรูป GPS และวิเคราะห์ความเสียหายโครงสร้าง",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
