@@ -436,6 +436,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
   // Unified Drag Start Helpers for Mouse / Touch / Pointer
   const handleStartDragCol = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, colId: string) => {
+    if (toolMode === 'wall') return;
     e.stopPropagation();
     setSelectedColId(colId);
     setSelectedWallId(null);
@@ -447,6 +448,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   };
 
   const handleStartDragWallBody = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, wall: WallItem) => {
+    if (toolMode === 'wall') return;
     e.stopPropagation();
     setSelectedWallId(wall.id);
     setSelectedColId(null);
@@ -472,6 +474,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
     wall: WallItem,
     handle: 'start' | 'end'
   ) => {
+    if (toolMode === 'wall') return;
     e.stopPropagation();
     setSelectedWallId(wall.id);
     setSelectedColId(null);
@@ -493,6 +496,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   };
 
   const handleStartDragOpening = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, opId: string) => {
+    if (toolMode === 'wall') return;
     e.stopPropagation();
     setSelectedOpeningId(opId);
     setSelectedColId(null);
@@ -504,6 +508,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   };
 
   const handleStartDragRoom = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, roomId: string) => {
+    if (toolMode === 'wall') return;
     e.stopPropagation();
     setSelectedRoomId(roomId);
     setSelectedColId(null);
@@ -2182,6 +2187,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                   <g
                     key={wall.id}
                     onClick={(e) => {
+                      if (toolMode === 'wall') return;
                       if (toolMode === 'opening') {
                         e.stopPropagation();
                         handleWallClickToPlaceOpening(wall);
@@ -2967,6 +2973,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                   <g
                     key={def.id}
                     onClick={(e) => {
+                      if (toolMode === 'wall') return;
                       e.stopPropagation();
                       setSelectedDefectId(def.id);
                       setSelectedColId(null);
@@ -2976,6 +2983,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                       setToolMode('select');
                     }}
                     onMouseDown={(e) => {
+                      if (toolMode === 'wall') return;
                       e.stopPropagation();
                       setSelectedDefectId(def.id);
                       setSelectedColId(null);
@@ -2985,6 +2993,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                       setToolMode('select');
                     }}
                     onTouchStart={(e) => {
+                      if (toolMode === 'wall') return;
                       e.stopPropagation();
                       setSelectedDefectId(def.id);
                       setSelectedColId(null);
