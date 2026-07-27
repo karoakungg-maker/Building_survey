@@ -436,35 +436,35 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
   // Unified Drag Start Helpers for Mouse / Touch / Pointer
   const handleStartDragCol = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, colId: string) => {
-    if (toolMode === 'select' || toolMode === 'pan' || toolMode === 'column') {
-      e.stopPropagation();
-      setSelectedColId(colId);
-      setSelectedWallId(null);
-      setSelectedOpeningId(null);
-      setSelectedDefectId(null);
-      setDraggingColId(colId);
-    }
+    e.stopPropagation();
+    setSelectedColId(colId);
+    setSelectedWallId(null);
+    setSelectedOpeningId(null);
+    setSelectedDefectId(null);
+    setSelectedRoomId(null);
+    setDraggingColId(colId);
+    setToolMode('select');
   };
 
   const handleStartDragWallBody = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, wall: WallItem) => {
-    if (toolMode === 'select' || toolMode === 'pan') {
-      e.stopPropagation();
-      setSelectedWallId(wall.id);
-      setSelectedColId(null);
-      setSelectedOpeningId(null);
-      setSelectedDefectId(null);
-      setDraggingWallId(wall.id);
-      setDraggingWallHandle('body');
-      const m = getMeterCoordsFromEvent(e);
-      setWallDragInitialCoords({
-        startX: wall.startX,
-        startY: wall.startY,
-        endX: wall.endX,
-        endY: wall.endY,
-        mouseStartX: m.x,
-        mouseStartY: m.y,
-      });
-    }
+    e.stopPropagation();
+    setSelectedWallId(wall.id);
+    setSelectedColId(null);
+    setSelectedOpeningId(null);
+    setSelectedDefectId(null);
+    setSelectedRoomId(null);
+    setDraggingWallId(wall.id);
+    setDraggingWallHandle('body');
+    setToolMode('select');
+    const m = getMeterCoordsFromEvent(e);
+    setWallDragInitialCoords({
+      startX: wall.startX,
+      startY: wall.startY,
+      endX: wall.endX,
+      endY: wall.endY,
+      mouseStartX: m.x,
+      mouseStartY: m.y,
+    });
   };
 
   const handleStartDragWallHandle = (
@@ -474,8 +474,13 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   ) => {
     e.stopPropagation();
     setSelectedWallId(wall.id);
+    setSelectedColId(null);
+    setSelectedOpeningId(null);
+    setSelectedDefectId(null);
+    setSelectedRoomId(null);
     setDraggingWallId(wall.id);
     setDraggingWallHandle(handle);
+    setToolMode('select');
     const m = getMeterCoordsFromEvent(e);
     setWallDragInitialCoords({
       startX: wall.startX,
@@ -488,27 +493,25 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   };
 
   const handleStartDragOpening = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, opId: string) => {
-    if (toolMode === 'select' || toolMode === 'pan') {
-      e.stopPropagation();
-      setSelectedOpeningId(opId);
-      setSelectedColId(null);
-      setSelectedWallId(null);
-      setSelectedDefectId(null);
-      setDraggingOpeningId(opId);
-    }
+    e.stopPropagation();
+    setSelectedOpeningId(opId);
+    setSelectedColId(null);
+    setSelectedWallId(null);
+    setSelectedDefectId(null);
+    setSelectedRoomId(null);
+    setDraggingOpeningId(opId);
+    setToolMode('select');
   };
 
   const handleStartDragRoom = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, roomId: string) => {
-    if (toolMode === 'select' || toolMode === 'pan' || toolMode === 'room') {
-      e.stopPropagation();
-      setSelectedRoomId(roomId);
-      setSelectedColId(null);
-      setSelectedWallId(null);
-      setSelectedOpeningId(null);
-      setSelectedDefectId(null);
-      setDraggingRoomId(roomId);
-      handleToolModeChange('select');
-    }
+    e.stopPropagation();
+    setSelectedRoomId(roomId);
+    setSelectedColId(null);
+    setSelectedWallId(null);
+    setSelectedOpeningId(null);
+    setSelectedDefectId(null);
+    setDraggingRoomId(roomId);
+    setToolMode('select');
   };
 
   // Convert SVG/Canvas click/touch/pointer coords to meter coords
@@ -547,9 +550,21 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
       touchState.current.lastY = e.touches[0].clientY;
       touchState.current.dist = null;
 
-      const hasSelectedItem = !!(selectedColId || selectedWallId || selectedOpeningId || selectedDefectId || selectedRoomId);
+      if (draggingColId || draggingWallId || draggingOpeningId || draggingRoomId) {
+        return;
+      }
 
-      if (!hasSelectedItem && (toolMode === 'pan' || e.target === containerRef.current)) {
+      const hasSelectedItem = !!(selectedColId || selectedWallId || selectedOpeningId || selectedDefectId || selectedRoomId);
+      if (hasSelectedItem) {
+        return;
+      }
+
+      const target = e.target as HTMLElement;
+      const targetId = target.id;
+      const targetTag = target.tagName ? target.tagName.toLowerCase() : '';
+      const isBackground = target === containerRef.current || targetTag === 'svg' || targetId === 'cad-grid-bg';
+
+      if (toolMode === 'pan' || isBackground) {
         setIsPanning(true);
         setStartPan({ x: e.touches[0].clientX - pan.x, y: e.touches[0].clientY - pan.y });
       }
@@ -607,23 +622,27 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
   // Handle Canvas Mouse Down (Panning vs Drawing)
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    const hasSelectedItem = !!(selectedColId || selectedWallId || selectedOpeningId || selectedDefectId || selectedRoomId);
+    // Middle or Right click always pans
+    if (e.button === 1 || e.button === 2) {
+      setIsPanning(true);
+      setStartPan({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+      return;
+    }
 
-    if (
-      e.button === 0 || // Left click
-      e.button === 1 || // Middle click
-      e.button === 2    // Right click
-    ) {
+    if (e.button === 0) { // Left click
+      const hasSelectedItem = !!(selectedColId || selectedWallId || selectedOpeningId || selectedDefectId || selectedRoomId);
+
       // Lock left-click panning when an object is selected for editing, so screen doesn't move during editing
-      if (hasSelectedItem && e.button === 0) {
+      if (hasSelectedItem) {
         return;
       }
 
-      if (
-        toolMode === 'pan' ||
-        e.button !== 0 || // Middle or right click always pans
-        (e.target === containerRef.current || (e.target as HTMLElement).tagName === 'svg')
-      ) {
+      const target = e.target as HTMLElement;
+      const targetId = target.id;
+      const targetTag = target.tagName ? target.tagName.toLowerCase() : '';
+      const isBackground = target === containerRef.current || targetTag === 'svg' || targetId === 'cad-grid-bg';
+
+      if (toolMode === 'pan' || isBackground) {
         setIsPanning(true);
         setStartPan({ x: e.clientX - pan.x, y: e.clientY - pan.y });
       }
@@ -1068,7 +1087,14 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
       // Clear selections if clicked on empty canvas and return to pan mode
       const targetId = (e.target as Element).id;
       const targetTag = (e.target as Element).tagName ? (e.target as Element).tagName.toLowerCase() : '';
-      if (e.target === e.currentTarget || targetId === 'cad-grid-bg' || targetTag === 'svg') {
+      if (
+        e.target === e.currentTarget ||
+        targetId === 'cad-grid-bg' ||
+        targetTag === 'svg' ||
+        targetTag === 'rect' ||
+        targetTag === 'line' ||
+        targetTag === 'path'
+      ) {
         setSelectedColId(null);
         setSelectedWallId(null);
         setSelectedOpeningId(null);
@@ -2156,19 +2182,12 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                   <g
                     key={wall.id}
                     onClick={(e) => {
-                      if (toolMode === 'select' || toolMode === 'pan' || toolMode === 'wall') {
-                        e.stopPropagation();
-                        setSelectedWallId(wall.id);
-                        setSelectedColId(null);
-                        setSelectedOpeningId(null);
-                        setSelectedDefectId(null);
-                        setSelectedRoomId(null);
-                        handleToolModeChange('select');
-                      } else if (toolMode === 'opening') {
+                      if (toolMode === 'opening') {
                         e.stopPropagation();
                         handleWallClickToPlaceOpening(wall);
+                      } else {
+                        handleStartDragWallBody(e, wall);
                       }
-                      // In column/wall/defect tools, let click bubble up to handleCanvasClick
                     }}
                     className="cursor-pointer group"
                   >
@@ -2181,28 +2200,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                       stroke={strokeColor}
                       strokeWidth={Math.max(thicknessPx, 6)}
                       strokeLinecap="square"
-                      onMouseDown={(e) => {
-                        if (toolMode === 'select' || toolMode === 'pan' || toolMode === 'wall') {
-                          e.stopPropagation();
-                          setSelectedWallId(wall.id);
-                          setSelectedColId(null);
-                          setSelectedOpeningId(null);
-                          setSelectedDefectId(null);
-                          setSelectedRoomId(null);
-                          setDraggingWallId(wall.id);
-                          setDraggingWallHandle('body');
-                          handleToolModeChange('select');
-                          const m = getMeterCoordsFromEvent(e);
-                          setWallDragInitialCoords({
-                            startX: wall.startX,
-                            startY: wall.startY,
-                            endX: wall.endX,
-                            endY: wall.endY,
-                            mouseStartX: m.x,
-                            mouseStartY: m.y,
-                          });
-                        }
-                      }}
+                      onMouseDown={(e) => handleStartDragWallBody(e, wall)}
+                      onTouchStart={(e) => handleStartDragWallBody(e, wall)}
                       className={`transition-all cursor-pointer ${isSelected ? 'stroke-amber-400 opacity-100' : 'opacity-90 hover:opacity-100'}`}
                     />
 
@@ -2265,21 +2264,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                           fill="#f59e0b"
                           stroke="#ffffff"
                           strokeWidth="2"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setSelectedWallId(wall.id);
-                            setDraggingWallId(wall.id);
-                            setDraggingWallHandle('start');
-                            const m = getMeterCoordsFromEvent(e);
-                            setWallDragInitialCoords({
-                              startX: wall.startX,
-                              startY: wall.startY,
-                              endX: wall.endX,
-                              endY: wall.endY,
-                              mouseStartX: m.x,
-                              mouseStartY: m.y,
-                            });
-                          }}
+                          onMouseDown={(e) => handleStartDragWallHandle(e, wall, 'start')}
+                          onTouchStart={(e) => handleStartDragWallHandle(e, wall, 'start')}
                           className="cursor-pointer hover:scale-125 transition-transform"
                         />
                         {/* End handle */}
@@ -2290,21 +2276,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                           fill="#f59e0b"
                           stroke="#ffffff"
                           strokeWidth="2"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setSelectedWallId(wall.id);
-                            setDraggingWallId(wall.id);
-                            setDraggingWallHandle('end');
-                            const m = getMeterCoordsFromEvent(e);
-                            setWallDragInitialCoords({
-                              startX: wall.startX,
-                              startY: wall.startY,
-                              endX: wall.endX,
-                              endY: wall.endY,
-                              mouseStartX: m.x,
-                              mouseStartY: m.y,
-                            });
-                          }}
+                          onMouseDown={(e) => handleStartDragWallHandle(e, wall, 'end')}
+                          onTouchStart={(e) => handleStartDragWallHandle(e, wall, 'end')}
                           className="cursor-pointer hover:scale-125 transition-transform"
                         />
 
@@ -2671,29 +2644,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                 return (
                   <g
                     key={op.id}
-                    onClick={(e) => {
-                      if (toolMode === 'select' || toolMode === 'pan' || toolMode === 'opening') {
-                        e.stopPropagation();
-                        setSelectedOpeningId(op.id);
-                        setSelectedColId(null);
-                        setSelectedWallId(null);
-                        setSelectedDefectId(null);
-                        setSelectedRoomId(null);
-                        handleToolModeChange('select');
-                      }
-                    }}
-                    onMouseDown={(e) => {
-                      if (toolMode === 'select' || toolMode === 'pan' || toolMode === 'opening') {
-                        e.stopPropagation();
-                        setDraggingOpeningId(op.id);
-                        setSelectedOpeningId(op.id);
-                        setSelectedColId(null);
-                        setSelectedWallId(null);
-                        setSelectedDefectId(null);
-                        setSelectedRoomId(null);
-                        handleToolModeChange('select');
-                      }
-                    }}
+                    onClick={(e) => handleStartDragOpening(e, op.id)}
+                    onMouseDown={(e) => handleStartDragOpening(e, op.id)}
+                    onTouchStart={(e) => handleStartDragOpening(e, op.id)}
                     className="cursor-pointer"
                   >
                     {/* Opening Cutout box */}
@@ -2847,29 +2800,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                 return (
                   <g
                     key={col.id}
-                    onClick={(e) => {
-                      if (toolMode === 'select' || toolMode === 'pan' || toolMode === 'column') {
-                        e.stopPropagation();
-                        setSelectedColId(col.id);
-                        setSelectedWallId(null);
-                        setSelectedOpeningId(null);
-                        setSelectedDefectId(null);
-                        setSelectedRoomId(null);
-                        handleToolModeChange('select');
-                      }
-                    }}
-                    onMouseDown={(e) => {
-                      if (toolMode === 'select' || toolMode === 'pan' || toolMode === 'column') {
-                        e.stopPropagation();
-                        setSelectedColId(col.id);
-                        setSelectedWallId(null);
-                        setSelectedOpeningId(null);
-                        setSelectedDefectId(null);
-                        setSelectedRoomId(null);
-                        setDraggingColId(col.id);
-                        handleToolModeChange('select');
-                      }
-                    }}
+                    onClick={(e) => handleStartDragCol(e, col.id)}
+                    onMouseDown={(e) => handleStartDragCol(e, col.id)}
+                    onTouchStart={(e) => handleStartDragCol(e, col.id)}
                     className="cursor-pointer"
                   >
                     {/* Column Shape */}
@@ -3034,15 +2967,31 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                   <g
                     key={def.id}
                     onClick={(e) => {
-                      if (toolMode === 'select' || toolMode === 'pan' || toolMode === 'defect') {
-                        e.stopPropagation();
-                        setSelectedDefectId(def.id);
-                        setSelectedColId(null);
-                        setSelectedWallId(null);
-                        setSelectedOpeningId(null);
-                        setSelectedRoomId(null);
-                        handleToolModeChange('select');
-                      }
+                      e.stopPropagation();
+                      setSelectedDefectId(def.id);
+                      setSelectedColId(null);
+                      setSelectedWallId(null);
+                      setSelectedOpeningId(null);
+                      setSelectedRoomId(null);
+                      setToolMode('select');
+                    }}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      setSelectedDefectId(def.id);
+                      setSelectedColId(null);
+                      setSelectedWallId(null);
+                      setSelectedOpeningId(null);
+                      setSelectedRoomId(null);
+                      setToolMode('select');
+                    }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      setSelectedDefectId(def.id);
+                      setSelectedColId(null);
+                      setSelectedWallId(null);
+                      setSelectedOpeningId(null);
+                      setSelectedRoomId(null);
+                      setToolMode('select');
                     }}
                     className="cursor-pointer group"
                   >
@@ -3278,29 +3227,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
                     {/* Room Anchor / Pin */}
                     <g
-                      onClick={(e) => {
-                        if (toolMode === 'select' || toolMode === 'pan' || toolMode === 'room') {
-                          e.stopPropagation();
-                          setSelectedRoomId(room.id);
-                          setSelectedColId(null);
-                          setSelectedWallId(null);
-                          setSelectedOpeningId(null);
-                          setSelectedDefectId(null);
-                          handleToolModeChange('select');
-                        }
-                      }}
-                      onMouseDown={(e) => {
-                        if (toolMode === 'select' || toolMode === 'pan' || toolMode === 'room') {
-                          e.stopPropagation();
-                          setSelectedRoomId(room.id);
-                          setSelectedColId(null);
-                          setSelectedWallId(null);
-                          setSelectedOpeningId(null);
-                          setSelectedDefectId(null);
-                          setDraggingRoomId(room.id);
-                          handleToolModeChange('select');
-                        }
-                      }}
+                      onClick={(e) => handleStartDragRoom(e, room.id)}
+                      onMouseDown={(e) => handleStartDragRoom(e, room.id)}
+                      onTouchStart={(e) => handleStartDragRoom(e, room.id)}
                       className="cursor-move"
                     >
                       {/* Anchor circle */}
