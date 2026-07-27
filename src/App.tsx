@@ -33,18 +33,58 @@ export default function App() {
     return SAMPLE_PROJECT_1.project;
   });
 
-  const [floorPlan, setFloorPlan] = useState<FloorPlanData>(() => {
+  const [activeFloorId, setActiveFloorId] = useState<string>('floor_1');
+  const [floorPlansMap, setFloorPlansMap] = useState<Record<string, FloorPlanData>>(() => {
     try {
       const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.floorPlan) return parsed.floorPlan;
+        if (parsed.floorPlansMap) return parsed.floorPlansMap;
+        if (parsed.floorPlan) {
+          return { [parsed.floorPlan.floorId || 'floor_1']: parsed.floorPlan };
+        }
       }
     } catch (e) {
-      console.warn('Failed to parse draft floorPlan state:', e);
+      console.warn('Failed to parse draft floorPlansMap:', e);
     }
-    return SAMPLE_PROJECT_1.floorPlan;
+    return { [SAMPLE_PROJECT_1.floorPlan.floorId]: SAMPLE_PROJECT_1.floorPlan };
   });
+
+  const floorPlan = floorPlansMap[activeFloorId] || floorPlansMap['floor_1'] || SAMPLE_PROJECT_1.floorPlan;
+
+  const setFloorPlan = (updated: FloorPlanData) => {
+    setFloorPlansMap((prev) => ({
+      ...prev,
+      [activeFloorId]: updated,
+    }));
+  };
+
+  const handleSelectFloor = (floorId: string) => {
+    setActiveFloorId(floorId);
+    if (!floorPlansMap[floorId]) {
+      const floor1 = floorPlansMap['floor_1'] || Object.values(floorPlansMap)[0] || SAMPLE_PROJECT_1.floorPlan;
+      const floorNum = parseInt(floorId.replace('floor_', '')) || 1;
+      const floorHeight = project.floorHeights?.[floorId] ?? project.defaultFloorHeight;
+
+      const newFloorData: FloorPlanData = {
+        floorId: floorId,
+        floorName: `ชั้น ${floorNum}`,
+        floorHeight: floorHeight,
+        ceilingHeight: project.defaultCeilingHeight,
+        gridX: JSON.parse(JSON.stringify(floor1.gridX)),
+        gridY: JSON.parse(JSON.stringify(floor1.gridY)),
+        columns: JSON.parse(JSON.stringify(floor1.columns)),
+        walls: [],
+        openings: [],
+        defectPins: [],
+        roomPins: [],
+      };
+      setFloorPlansMap((prev) => ({
+        ...prev,
+        [floorId]: newFloorData,
+      }));
+    }
+  };
 
   const [photos, setPhotos] = useState<PhotoRecord[]>(() => {
     try {
@@ -64,6 +104,7 @@ export default function App() {
     try {
       const draftData = {
         project,
+        floorPlansMap,
         floorPlan,
         photos,
         updatedAt: new Date().toISOString(),
@@ -72,7 +113,7 @@ export default function App() {
     } catch (e) {
       console.warn('Could not auto-save active draft to localStorage:', e);
     }
-  }, [project, floorPlan, photos]);
+  }, [project, floorPlansMap, floorPlan, photos]);
 
   const [activeTab, setActiveTab] = useState<'cad' | 'photos'>('cad');
 
@@ -86,7 +127,8 @@ export default function App() {
   // Load Sample Project
   const handleLoadSample = () => {
     setProject(SAMPLE_PROJECT_1.project);
-    setFloorPlan(SAMPLE_PROJECT_1.floorPlan);
+    setFloorPlansMap({ [SAMPLE_PROJECT_1.floorPlan.floorId]: SAMPLE_PROJECT_1.floorPlan });
+    setActiveFloorId(SAMPLE_PROJECT_1.floorPlan.floorId);
     setPhotos(SAMPLE_PROJECT_1.photos);
   };
 
@@ -105,6 +147,7 @@ export default function App() {
       address: 'กรุงเทพมหานคร',
       gps: { lat: 13.75633, lng: 100.50177 },
       defaultFloorHeight: 3.2,
+      floorHeights: { floor_1: 3.2, floor_2: 3.0 },
       defaultCeilingHeight: 2.8,
       notes: 'อาคารพักอาศัยเดิมสลับก่ออิฐครึ่งตึกครึ่งไม้',
       status: 'in_progress',
@@ -115,7 +158,7 @@ export default function App() {
     const blankFloorPlan: FloorPlanData = {
       floorId: 'floor_1',
       floorName: 'ชั้น 1',
-      floorHeight: 2.8,
+      floorHeight: 3.2,
       ceilingHeight: 2.8,
       gridX: [
         { id: 'gx_A', label: 'A', positionMeters: 0 },
@@ -146,9 +189,9 @@ export default function App() {
       openings: [],
       defectPins: [],
     };
-
     setProject(newProj);
-    setFloorPlan(blankFloorPlan);
+    setFloorPlansMap({ floor_1: blankFloorPlan });
+    setActiveFloorId('floor_1');
     setPhotos([]);
     setIsMetaModalOpen(true);
   };
@@ -160,6 +203,8 @@ export default function App() {
         project={project}
         activeTab={activeTab}
         onChangeTab={setActiveTab}
+        activeFloorId={activeFloorId}
+        onSelectFloor={handleSelectFloor}
         onOpenMetaModal={() => setIsMetaModalOpen(true)}
         onOpenPrintView={(mode) => setPrintPreview({ isOpen: true, mode: mode || 'report' })}
         onLoadSample={handleLoadSample}
@@ -214,6 +259,9 @@ export default function App() {
             <CadCanvas
               floorPlan={floorPlan}
               onChangeFloorPlan={setFloorPlan}
+              project={project}
+              activeFloorId={activeFloorId}
+              onChangeActiveFloorId={handleSelectFloor}
               onOpenPrintView={(mode: 'report' | 'plan') => setPrintPreview({ isOpen: true, mode })}
             />
           </div>

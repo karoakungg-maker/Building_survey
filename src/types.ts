@@ -27,6 +27,7 @@ export interface SurveyProject {
   address: string;
   gps: GPSCoords; // บันทึก GPS เฉพาะสถานที่
   defaultFloorHeight: number; // ความสูงชั้น (เมตร)
+  floorHeights?: Record<string, number>; // ความสูงแต่ละชั้นแยกรายชั้น e.g. { "floor_1": 3.5, "floor_2": 3.2 }
   defaultCeilingHeight: number; // ความสูงฝ้าเริ่มต้น (เมตร)
   notes: string;
   status: 'in_progress' | 'completed' | 'urgent_review';

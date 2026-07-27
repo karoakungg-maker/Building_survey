@@ -121,6 +121,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   // Wall Creation & Dragging/Stretching state
   const [newWallThicknessCm, setNewWallThicknessCm] = useState<number>(10);
   const [newWallMaterial, setNewWallMaterial] = useState<WallMaterial>('half_brick');
+  const [wallAlignment, setWallAlignment] = useState<'left' | 'center' | 'right'>('center');
   const [draggingWallId, setDraggingWallId] = useState<string | null>(null);
   const [draggingWallHandle, setDraggingWallHandle] = useState<'start' | 'end' | 'body' | null>(null);
   const [wallDragInitialCoords, setWallDragInitialCoords] = useState<{
@@ -545,7 +546,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
     const meterX = Math.round((clickX / zoom) * 20) / 20;
     const meterY = Math.round((clickY / zoom) * 20) / 20;
-    return { x: Math.max(0, meterX), y: Math.max(0, meterY) };
+    return { x: Math.max(-5, meterX), y: Math.max(-5, meterY) };
   };
 
   // Touch Handlers for Drag Panning, Stylus, and Pinch Zooming
@@ -901,23 +902,58 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
       });
     }
 
-    // 1. Column snap points
+    // Helper to get closest point on segment
+    const getClosestPointOnSegment = (p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq === 0) return a;
+      let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+      t = Math.max(0, Math.min(1, t));
+      return { x: a.x + t * dx, y: a.y + t * dy };
+    };
+
+    // 1. Column snap points & wall outer face alignment points
+    const wallThM = (newWallThicknessCm || 10) / 100;
+    const wallHalfM = wallThM / 2;
+
     floorPlan.columns.forEach((col) => {
       const w2 = (col.widthCm / 2) / 100;
       const d2 = (col.depthCm / 2) / 100;
       
-      // Center
-      osnapCandidates.push({ x: col.x, y: col.y });
-      // Face midpoints
-      osnapCandidates.push({ x: col.x - w2, y: col.y });
-      osnapCandidates.push({ x: col.x + w2, y: col.y });
-      osnapCandidates.push({ x: col.x, y: col.y - d2 });
-      osnapCandidates.push({ x: col.x, y: col.y + d2 });
-      // Corners
-      osnapCandidates.push({ x: col.x - w2, y: col.y - d2 });
-      osnapCandidates.push({ x: col.x + w2, y: col.y - d2 });
-      osnapCandidates.push({ x: col.x - w2, y: col.y + d2 });
-      osnapCandidates.push({ x: col.x + w2, y: col.y + d2 });
+      const pTL = { x: col.x - w2, y: col.y - d2 };
+      const pTR = { x: col.x + w2, y: col.y - d2 };
+      const pBL = { x: col.x - w2, y: col.y + d2 };
+      const pBR = { x: col.x + w2, y: col.y + d2 };
+
+      // Snap to any point on column outer edges (Top, Bottom, Left, Right) on closest side
+      osnapCandidates.push(getClosestPointOnSegment(meterPos, pTL, pTR));
+      osnapCandidates.push(getClosestPointOnSegment(meterPos, pBL, pBR));
+      osnapCandidates.push(getClosestPointOnSegment(meterPos, pTL, pBL));
+      osnapCandidates.push(getClosestPointOnSegment(meterPos, pTR, pBR));
+
+      // Center & Corners
+      osnapCandidates.push({ x: col.x, y: col.y }, pTL, pTR, pBL, pBR);
+
+      // Wall center positions that align wall outer face flush with column edges
+      osnapCandidates.push({ x: col.x - w2 + wallHalfM, y: col.y }); // Left outer face align
+      osnapCandidates.push({ x: col.x + w2 - wallHalfM, y: col.y }); // Right outer face align
+      osnapCandidates.push({ x: col.x, y: col.y - d2 + wallHalfM }); // Top outer face align
+      osnapCandidates.push({ x: col.x, y: col.y + d2 - wallHalfM }); // Bottom outer face align
+
+      // Osnap along grid lines for outer edges
+      floorPlan.gridY.forEach((gy) => {
+        osnapCandidates.push({ x: col.x - w2, y: gy.positionMeters });
+        osnapCandidates.push({ x: col.x - w2 + wallHalfM, y: gy.positionMeters });
+        osnapCandidates.push({ x: col.x + w2, y: gy.positionMeters });
+        osnapCandidates.push({ x: col.x + w2 - wallHalfM, y: gy.positionMeters });
+      });
+      floorPlan.gridX.forEach((gx) => {
+        osnapCandidates.push({ x: gx.positionMeters, y: col.y - d2 });
+        osnapCandidates.push({ x: gx.positionMeters, y: col.y - d2 + wallHalfM });
+        osnapCandidates.push({ x: gx.positionMeters, y: col.y + d2 });
+        osnapCandidates.push({ x: gx.positionMeters, y: col.y + d2 - wallHalfM });
+      });
     });
 
     // 2. Wall snap points
@@ -929,7 +965,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
       const my = (wall.startY + wall.endY) / 2;
       osnapCandidates.push({ x: mx, y: my });
 
-      // Offsets representing wall faces/corners
+      // Offsets representing wall faces/corners and closest point on wall outer face segments
       const dx = wall.endX - wall.startX;
       const dy = wall.endY - wall.startY;
       const len = Math.hypot(dx, dy);
@@ -941,6 +977,14 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
         osnapCandidates.push({ x: wall.startX - nx * th2, y: wall.startY - ny * th2 });
         osnapCandidates.push({ x: wall.endX + nx * th2, y: wall.endY + ny * th2 });
         osnapCandidates.push({ x: wall.endX - nx * th2, y: wall.endY - ny * th2 });
+
+        const f1Start = { x: wall.startX + nx * th2, y: wall.startY + ny * th2 };
+        const f1End = { x: wall.endX + nx * th2, y: wall.endY + ny * th2 };
+        const f2Start = { x: wall.startX - nx * th2, y: wall.startY - ny * th2 };
+        const f2End = { x: wall.endX - nx * th2, y: wall.endY - ny * th2 };
+
+        osnapCandidates.push(getClosestPointOnSegment(meterPos, f1Start, f1End));
+        osnapCandidates.push(getClosestPointOnSegment(meterPos, f2Start, f2End));
       }
     });
 
@@ -1031,12 +1075,52 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
           return;
         }
 
+        let finalStartX = wallStartPoint.x;
+        let finalStartY = wallStartPoint.y;
+        let finalEndX = targetX;
+        let finalEndY = targetY;
+
+        if (wallAlignment !== 'center') {
+          const wallThM = newWallThicknessCm / 100;
+          const halfThM = wallThM / 2;
+
+          const isVertical = Math.abs(finalStartX - finalEndX) < 0.05;
+          const isHorizontal = Math.abs(finalStartY - finalEndY) < 0.05;
+
+          if (isVertical) {
+            // 'left': ริมซ้าย -> center shifted +halfThM in X
+            // 'right': ริมขวา -> center shifted -halfThM in X
+            const shiftX = wallAlignment === 'left' ? halfThM : -halfThM;
+            finalStartX = Math.round((finalStartX + shiftX) * 100) / 100;
+            finalEndX = Math.round((finalEndX + shiftX) * 100) / 100;
+          } else if (isHorizontal) {
+            // 'left': ริมบน -> center shifted +halfThM in Y
+            // 'right': ริมล่าง -> center shifted -halfThM in Y
+            const shiftY = wallAlignment === 'left' ? halfThM : -halfThM;
+            finalStartY = Math.round((finalStartY + shiftY) * 100) / 100;
+            finalEndY = Math.round((finalEndY + shiftY) * 100) / 100;
+          } else {
+            const vX = finalEndX - finalStartX;
+            const vY = finalEndY - finalStartY;
+            const len = Math.hypot(vX, vY);
+            if (len > 0) {
+              const shiftAmount = wallAlignment === 'left' ? halfThM : -halfThM;
+              const normX = (vY / len) * shiftAmount;
+              const normY = (-vX / len) * shiftAmount;
+              finalStartX = Math.round((finalStartX + normX) * 100) / 100;
+              finalStartY = Math.round((finalStartY + normY) * 100) / 100;
+              finalEndX = Math.round((finalEndX + normX) * 100) / 100;
+              finalEndY = Math.round((finalEndY + normY) * 100) / 100;
+            }
+          }
+        }
+
         const newWall: WallItem = {
           id: `wall_${Date.now().toString().slice(-6)}`,
-          startX: wallStartPoint.x,
-          startY: wallStartPoint.y,
-          endX: targetX,
-          endY: targetY,
+          startX: finalStartX,
+          startY: finalStartY,
+          endX: finalEndX,
+          endY: finalEndY,
           thicknessCm: newWallThicknessCm,
           material: newWallMaterial,
           condition: 'good',
@@ -1111,8 +1195,18 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   };
 
   // Add Window or Door to Wall
-  const handleWallClickToPlaceOpening = (wall: WallItem) => {
+  const handleWallClickToPlaceOpening = (e: React.MouseEvent, wall: WallItem) => {
     if (toolMode !== 'opening') return;
+
+    const rawMeter = getMeterCoordsFromEvent(e);
+    const dx = wall.endX - wall.startX;
+    const dy = wall.endY - wall.startY;
+    const lenSq = dx * dx + dy * dy;
+    let ratio = 0.5;
+    if (lenSq > 0) {
+      ratio = ((rawMeter.x - wall.startX) * dx + (rawMeter.y - wall.startY) * dy) / lenSq;
+      ratio = Math.max(0.05, Math.min(0.95, ratio));
+    }
 
     const isDoor = openingTypeToAdd === 'door';
     const doorCount = floorPlan.openings.filter((o) => o.type === 'door').length + 1;
@@ -1127,7 +1221,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
       id: `op_${Date.now().toString().slice(-6)}`,
       wallId: wall.id,
       type: openingTypeToAdd,
-      positionOnWallRatio: 0.5, // Center on wall
+      positionOnWallRatio: Math.round(ratio * 1000) / 1000,
       widthCm: newOpeningWidthCm,
       heightCm: newOpeningHeightCm,
       sillHeightCm: newOpeningSillHeightCm,
@@ -1141,7 +1235,93 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
       openings: [...floorPlan.openings, newOpening],
     });
     setSelectedOpeningId(newOpening.id);
-    handleToolModeChange('pan');
+    setSelectedColId(null);
+    setSelectedWallId(null);
+    setSelectedDefectId(null);
+    setSelectedRoomId(null);
+  };
+
+  // Align selected wall to column edge or center
+  const handleAlignSelectedWallToColumn = (alignType: 'outer_start' | 'outer_end' | 'center') => {
+    const selectedWall = floorPlan.walls.find((w) => w.id === selectedWallId);
+    if (!selectedWall) return;
+
+    const isVertical = Math.abs(selectedWall.startX - selectedWall.endX) < 0.1;
+    const isHorizontal = Math.abs(selectedWall.startY - selectedWall.endY) < 0.1;
+
+    const wallMidX = (selectedWall.startX + selectedWall.endX) / 2;
+    const wallMidY = (selectedWall.startY + selectedWall.endY) / 2;
+
+    // Find closest column
+    let closestCol: ColumnItem | null = null;
+    let minColDist = Infinity;
+    floorPlan.columns.forEach((col) => {
+      const dist = Math.hypot(col.x - wallMidX, col.y - wallMidY);
+      if (dist < minColDist) {
+        minColDist = dist;
+        closestCol = col;
+      }
+    });
+
+    const colW = closestCol ? closestCol.widthCm / 100 : 0.20;
+    const colD = closestCol ? closestCol.depthCm / 100 : 0.20;
+    const colX = closestCol ? closestCol.x : 0;
+    const colY = closestCol ? closestCol.y : 0;
+    const wallTh = selectedWall.thicknessCm / 100;
+
+    let targetX = selectedWall.startX;
+    let targetY = selectedWall.startY;
+    let targetEndX = selectedWall.endX;
+    let targetEndY = selectedWall.endY;
+
+    if (isVertical) {
+      if (alignType === 'outer_start') {
+        // Outer Left face align: col.x - colW/2 + wallTh/2
+        const alignedX = Math.round((colX - colW / 2 + wallTh / 2) * 100) / 100;
+        targetX = alignedX;
+        targetEndX = alignedX;
+      } else if (alignType === 'outer_end') {
+        // Outer Right face align: col.x + colW/2 - wallTh/2
+        const alignedX = Math.round((colX + colW / 2 - wallTh / 2) * 100) / 100;
+        targetX = alignedX;
+        targetEndX = alignedX;
+      } else {
+        // Center
+        targetX = colX;
+        targetEndX = colX;
+      }
+    } else if (isHorizontal) {
+      if (alignType === 'outer_start') {
+        // Outer Top face align: col.y - colD/2 + wallTh/2
+        const alignedY = Math.round((colY - colD / 2 + wallTh / 2) * 100) / 100;
+        targetY = alignedY;
+        targetEndY = alignedY;
+      } else if (alignType === 'outer_end') {
+        // Outer Bottom face align: col.y + colD/2 - wallTh/2
+        const alignedY = Math.round((colY + colD / 2 - wallTh / 2) * 100) / 100;
+        targetY = alignedY;
+        targetEndY = alignedY;
+      } else {
+        // Center
+        targetY = colY;
+        targetEndY = colY;
+      }
+    }
+
+    onChangeFloorPlan({
+      ...floorPlan,
+      walls: floorPlan.walls.map((w) =>
+        w.id === selectedWall.id
+          ? {
+              ...w,
+              startX: targetX,
+              startY: targetY,
+              endX: targetEndX,
+              endY: targetEndY,
+            }
+          : w
+      ),
+    });
   };
 
   // Delete Handlers
@@ -2190,9 +2370,18 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                       if (toolMode === 'wall') return;
                       if (toolMode === 'opening') {
                         e.stopPropagation();
-                        handleWallClickToPlaceOpening(wall);
+                        handleWallClickToPlaceOpening(e, wall);
                       } else {
-                        handleStartDragWallBody(e, wall);
+                        e.stopPropagation();
+                        setSelectedWallId(wall.id);
+                        setSelectedColId(null);
+                        setSelectedOpeningId(null);
+                        setSelectedDefectId(null);
+                        setSelectedRoomId(null);
+                        setDraggingWallId(null);
+                        setDraggingWallHandle(null);
+                        setWallDragInitialCoords(null);
+                        setToolMode('select');
                       }
                     }}
                     className="cursor-pointer group"
@@ -2211,42 +2400,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                       className={`transition-all cursor-pointer ${isSelected ? 'stroke-amber-400 opacity-100' : 'opacity-90 hover:opacity-100'}`}
                     />
 
-                    {/* Wall Dimension / Length Parallel to Wall */}
+                    {/* Wall Dimension / Length Parallel to Wall (Removed per user request) */}
                     {(() => {
-                      const lenMeters = Math.hypot(wall.endX - wall.startX, wall.endY - wall.startY);
-                      if (lenMeters < 0.1) return null;
-                      const dx = x2 - x1;
-                      const dy = y2 - y1;
-                      const lenPx = Math.hypot(dx, dy);
-                      if (lenPx === 0) return null;
-                      const nx = -dy / lenPx;
-                      const ny = dx / lenPx;
-                      const offset = Math.max(thicknessPx / 2 + 14, 20);
-                      const textX = (x1 + x2) / 2 + nx * offset;
-                      const textY = (y1 + y2) / 2 + ny * offset;
-                      let angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
-                      if (angleDeg > 90 || angleDeg < -90) angleDeg += 180;
-
-                      return (
-                        <g className="pointer-events-none select-none">
-                          <text
-                            x={textX}
-                            y={textY}
-                            fill="#38bdf8"
-                            fontSize="11"
-                            fontFamily="monospace"
-                            fontWeight="bold"
-                            textAnchor="middle"
-                            alignmentBaseline="middle"
-                            transform={`rotate(${angleDeg}, ${textX}, ${textY})`}
-                            stroke="#020617"
-                            strokeWidth="3"
-                            paintOrder="stroke"
-                          >
-                            {lenMeters.toFixed(2)}m
-                          </text>
-                        </g>
-                      );
+                      return null;
                     })()}
 
                     {/* Selection outline and drag handles */}
@@ -2272,6 +2428,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                           strokeWidth="2"
                           onMouseDown={(e) => handleStartDragWallHandle(e, wall, 'start')}
                           onTouchStart={(e) => handleStartDragWallHandle(e, wall, 'start')}
+                          onClick={(e) => e.stopPropagation()}
                           className="cursor-pointer hover:scale-125 transition-transform"
                         />
                         {/* End handle */}
@@ -2284,6 +2441,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                           strokeWidth="2"
                           onMouseDown={(e) => handleStartDragWallHandle(e, wall, 'end')}
                           onTouchStart={(e) => handleStartDragWallHandle(e, wall, 'end')}
+                          onClick={(e) => e.stopPropagation()}
                           className="cursor-pointer hover:scale-125 transition-transform"
                         />
 
@@ -2650,7 +2808,17 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                 return (
                   <g
                     key={op.id}
-                    onClick={(e) => handleStartDragOpening(e, op.id)}
+                    onClick={(e) => {
+                      if (toolMode === 'wall') return;
+                      e.stopPropagation();
+                      setSelectedOpeningId(op.id);
+                      setSelectedColId(null);
+                      setSelectedWallId(null);
+                      setSelectedDefectId(null);
+                      setSelectedRoomId(null);
+                      setDraggingOpeningId(null);
+                      setToolMode('select');
+                    }}
                     onMouseDown={(e) => handleStartDragOpening(e, op.id)}
                     onTouchStart={(e) => handleStartDragOpening(e, op.id)}
                     className="cursor-pointer"
@@ -2806,7 +2974,17 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                 return (
                   <g
                     key={col.id}
-                    onClick={(e) => handleStartDragCol(e, col.id)}
+                    onClick={(e) => {
+                      if (toolMode === 'wall') return;
+                      e.stopPropagation();
+                      setSelectedColId(col.id);
+                      setSelectedWallId(null);
+                      setSelectedOpeningId(null);
+                      setSelectedDefectId(null);
+                      setSelectedRoomId(null);
+                      setDraggingColId(null);
+                      setToolMode('select');
+                    }}
                     onMouseDown={(e) => handleStartDragCol(e, col.id)}
                     onTouchStart={(e) => handleStartDragCol(e, col.id)}
                     className="cursor-pointer"
@@ -2834,22 +3012,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                       />
                     )}
 
-                    {/* Column Label */}
-                    <text
-                      x={colX}
-                      y={colY + depthPx / 2 + 16}
-                      textAnchor="middle"
-                      fill="#f1f5f9"
-                      fontSize="12"
-                      fontWeight="bold"
-                      stroke="#020617"
-                      strokeWidth="3"
-                      paintOrder="stroke"
-                    >
-                      {col.gridXLabel && col.gridYLabel !== 'custom'
-                        ? `${col.gridXLabel}${col.gridYLabel}`
-                        : `${col.widthCm}x${col.depthCm}`}
-                    </text>
+
 
                     {/* Grid line guidelines (แสดงระยะจากกริดลายเมื่อเลือกหรือเลื่อนเสา หรือแสดงตลอดเวลา) */}
                     {(() => {
@@ -3143,18 +3306,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                       <line x1={bounds.xMin * zoom} y1={(bounds.yMax + 0.05) * zoom} x2={bounds.xMin * zoom} y2={(bounds.yMax + 0.15) * zoom} stroke="#f97316" strokeWidth="1.2" />
                       <line x1={bounds.xMax * zoom} y1={(bounds.yMax + 0.05) * zoom} x2={bounds.xMax * zoom} y2={(bounds.yMax + 0.15) * zoom} stroke="#f97316" strokeWidth="1.2" />
                       
-                      {/* Label badge background and text for Width */}
+                      {/* Label text for Width (No border box) */}
                       <g transform={`translate(${((bounds.xMin + bounds.xMax) / 2) * zoom}, ${(bounds.yMax + 0.1) * zoom})`}>
-                        <rect
-                          x={-24}
-                          y={-10}
-                          width={48}
-                          height={16}
-                          rx={4}
-                          fill="#0f172a"
-                          stroke="#f97316"
-                          strokeWidth="0.8"
-                        />
                         <text
                           x={0}
                           y={2}
@@ -3163,6 +3316,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                           fontSize="9"
                           fontWeight="bold"
                           fontFamily="monospace"
+                          stroke="#020617"
+                          strokeWidth="2.5"
+                          paintOrder="stroke"
                         >
                           {roomCalc.width.toFixed(2)}m
                         </text>
@@ -3180,18 +3336,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                       <line x1={(bounds.xMax + 0.05) * zoom} y1={bounds.yMin * zoom} x2={(bounds.xMax + 0.15) * zoom} y2={bounds.yMin * zoom} stroke="#f97316" strokeWidth="1.2" />
                       <line x1={(bounds.xMax + 0.05) * zoom} y1={bounds.yMax * zoom} x2={(bounds.xMax + 0.15) * zoom} y2={bounds.yMax * zoom} stroke="#f97316" strokeWidth="1.2" />
 
-                      {/* Label badge background and text for Depth */}
+                      {/* Label text for Depth (No border box) */}
                       <g transform={`translate(${(bounds.xMax + 0.1) * zoom}, ${((bounds.yMin + bounds.yMax) / 2) * zoom})`}>
-                        <rect
-                          x={-24}
-                          y={-10}
-                          width={48}
-                          height={16}
-                          rx={4}
-                          fill="#0f172a"
-                          stroke="#f97316"
-                          strokeWidth="0.8"
-                        />
                         <text
                           x={0}
                           y={2}
@@ -3200,6 +3346,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                           fontSize="9"
                           fontWeight="bold"
                           fontFamily="monospace"
+                          stroke="#020617"
+                          strokeWidth="2.5"
+                          paintOrder="stroke"
                         >
                           {roomCalc.depth.toFixed(2)}m
                         </text>
@@ -3236,7 +3385,17 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
                     {/* Room Anchor / Pin */}
                     <g
-                      onClick={(e) => handleStartDragRoom(e, room.id)}
+                      onClick={(e) => {
+                        if (toolMode === 'wall') return;
+                        e.stopPropagation();
+                        setSelectedRoomId(room.id);
+                        setSelectedColId(null);
+                        setSelectedWallId(null);
+                        setSelectedOpeningId(null);
+                        setSelectedDefectId(null);
+                        setDraggingRoomId(null);
+                        setToolMode('select');
+                      }}
                       onMouseDown={(e) => handleStartDragRoom(e, room.id)}
                       onTouchStart={(e) => handleStartDragRoom(e, room.id)}
                       className="cursor-move"
@@ -3339,10 +3498,40 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                   }
                 }
 
-                const startPxX = wallStartPoint.x * zoom;
-                const startPxY = wallStartPoint.y * zoom;
-                const endPxX = targetX * zoom;
-                const endPxY = targetY * zoom;
+                // Reference line drawn by mouse
+                const refStartPxX = wallStartPoint.x * zoom;
+                const refStartPxY = wallStartPoint.y * zoom;
+                const refEndPxX = targetX * zoom;
+                const refEndPxY = targetY * zoom;
+
+                // Center line of wall considering wallAlignment
+                let startX = wallStartPoint.x;
+                let startY = wallStartPoint.y;
+                let endX = targetX;
+                let endY = targetY;
+
+                if (wallAlignment !== 'center') {
+                  const wallThM = newWallThicknessCm / 100;
+                  const halfThM = wallThM / 2;
+
+                  const isVertical = Math.abs(startX - endX) < 0.05;
+                  const isHorizontal = Math.abs(startY - endY) < 0.05;
+
+                  if (isVertical) {
+                    const shiftX = wallAlignment === 'left' ? halfThM : -halfThM;
+                    startX += shiftX;
+                    endX += shiftX;
+                  } else if (isHorizontal) {
+                    const shiftY = wallAlignment === 'left' ? halfThM : -halfThM;
+                    startY += shiftY;
+                    endY += shiftY;
+                  }
+                }
+
+                const startPxX = startX * zoom;
+                const startPxY = startY * zoom;
+                const endPxX = endX * zoom;
+                const endPxY = endY * zoom;
 
                 const midPxX = (startPxX + endPxX) / 2;
                 const midPxY = (startPxY + endPxY) / 2;
@@ -3356,31 +3545,56 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
                 return (
                   <g className="pointer-events-none">
-                    {/* Live Rubberband Line */}
+                    {/* User reference guide line if alignment is shifted */}
+                    {wallAlignment !== 'center' && (
+                      <line
+                        x1={refStartPxX}
+                        y1={refStartPxY}
+                        x2={refEndPxX}
+                        y2={refEndPxY}
+                        stroke="#38bdf8"
+                        strokeWidth="1.5"
+                        strokeDasharray="3,3"
+                        opacity="0.8"
+                      />
+                    )}
+
+                    {/* Wall Body Live Fill Preview */}
                     <line
                       x1={startPxX}
                       y1={startPxY}
                       x2={endPxX}
                       y2={endPxY}
                       stroke="#f59e0b"
-                      strokeWidth="6"
-                      strokeDasharray="6,4"
-                      opacity="0.9"
+                      strokeWidth={(newWallThicknessCm / 100) * zoom}
+                      opacity="0.5"
                     />
+
+                    {/* Live Rubberband Center Line */}
+                    <line
+                      x1={startPxX}
+                      y1={startPxY}
+                      x2={endPxX}
+                      y2={endPxY}
+                      stroke="#fbbf24"
+                      strokeWidth="2"
+                      strokeDasharray="6,4"
+                    />
+
                     {/* Start Point Pulse Circle */}
-                    <circle cx={startPxX} cy={startPxY} r={8} fill="#f59e0b" className="animate-ping" />
-                    <circle cx={startPxX} cy={startPxY} r={5} fill="#f59e0b" stroke="#ffffff" strokeWidth="1.5" />
+                    <circle cx={refStartPxX} cy={refStartPxY} r={8} fill="#f59e0b" className="animate-ping" />
+                    <circle cx={refStartPxX} cy={refStartPxY} r={5} fill="#f59e0b" stroke="#ffffff" strokeWidth="1.5" />
 
                     {/* Target End Point Pulse Circle */}
-                    <circle cx={endPxX} cy={endPxY} r={8} fill="#fbbf24" stroke="#ffffff" strokeWidth="2" />
+                    <circle cx={refEndPxX} cy={refEndPxY} r={8} fill="#fbbf24" stroke="#ffffff" strokeWidth="2" />
 
-                    {/* Length Badge */}
+                    {/* Length & Alignment Badge */}
                     {hoverMeterPos && (
                       <g>
                         <rect
-                          x={midPxX - 50}
+                          x={midPxX - 65}
                           y={midPxY - 24}
-                          width={100}
+                          width={130}
                           height={22}
                           rx={5}
                           fill="#0f172a"
@@ -3393,11 +3607,11 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                           y={midPxY - 9}
                           textAnchor="middle"
                           fill="#fbbf24"
-                          fontSize="11"
+                          fontSize="10"
                           fontWeight="bold"
                           fontFamily="monospace"
                         >
-                          L = {wallLength}m {isVertical ? '↕ แนวตั้ง' : isHorizontal ? '↔ แนวนอน' : ''}
+                          L = {wallLength}m ({wallAlignment === 'left' ? 'มุมซ้าย/บน' : wallAlignment === 'right' ? 'มุมขวา/ล่าง' : 'ตรงกลาง'})
                         </text>
                       </g>
                     )}
@@ -3732,8 +3946,52 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                 <span>กำหนดค่าผนังก่อนลาก</span>
               </div>
               <p className="text-slate-300 text-[11px] leading-relaxed">
-                เลือกขนาดความหนาและประเภทผนังก่อนเริ่มลากบนแปลน
+                เลือกแนวอ้างอิงลากเส้น ขนาดความหนา และประเภทผนังก่อนเริ่มลากบนแปลน
               </p>
+
+              <div>
+                <label className="text-slate-400 block mb-1 font-semibold text-[11px]">
+                  ตำแหน่งแนวอ้างอิงการลากเส้นผนัง (Wall Alignment):
+                </label>
+                <div className="grid grid-cols-3 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setWallAlignment('left')}
+                    className={`py-1.5 px-1 rounded border text-[10px] font-medium transition-all ${
+                      wallAlignment === 'left'
+                        ? 'bg-amber-600 text-white border-amber-400 font-bold shadow-sm'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                    }`}
+                    title="แนวเส้นลากอ้างอิงขอบนอกด้านซ้าย (สำหรับแนวตั้ง) หรือขอบบน (สำหรับแนวนอน)"
+                  >
+                    📐 มุมซ้าย / บน
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWallAlignment('center')}
+                    className={`py-1.5 px-1 rounded border text-[10px] font-medium transition-all ${
+                      wallAlignment === 'center'
+                        ? 'bg-amber-600 text-white border-amber-400 font-bold shadow-sm'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                    }`}
+                    title="แนวเส้นลากอ้างอิงเส้นกึ่งกลางผนัง (เซนเตอร์กริด)"
+                  >
+                    🎯 ตรงกลาง
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWallAlignment('right')}
+                    className={`py-1.5 px-1 rounded border text-[10px] font-medium transition-all ${
+                      wallAlignment === 'right'
+                        ? 'bg-amber-600 text-white border-amber-400 font-bold shadow-sm'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                    }`}
+                    title="แนวเส้นลากอ้างอิงขอบนอกด้านขวา (สำหรับแนวตั้ง) หรือขอบล่าง (สำหรับแนวนอน)"
+                  >
+                    📐 มุมขวา / ล่าง
+                  </button>
+                </div>
+              </div>
 
               <div>
                 <label className="text-slate-400 block mb-1">ความหนาผนัง (ซม.):</label>
@@ -3773,7 +4031,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
               <div className="bg-amber-950/30 border border-amber-800/50 rounded p-2 text-amber-300 text-[11px]">
                 * 1. คลิกจุดเริ่มต้นผนัง (ล็อคฉาก 90° อัตโนมัติ)<br />
-                * 2. คลิกจุดสิ้นสุดเพื่อสร้างผนัง
+                * 2. คลิกจุดสิ้นสุดเพื่อสร้างผนังตามแนวอ้างอิงที่เลือก
               </div>
             </div>
           )}
@@ -4186,6 +4444,36 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                   <span className="text-amber-400 font-bold">
                     {Math.sqrt(Math.pow(selectedWall.endX - selectedWall.startX, 2) + Math.pow(selectedWall.endY - selectedWall.startY, 2)).toFixed(2)} เมตร
                   </span>
+                </div>
+
+                {/* Quick Align Wall to Column Outer Edge */}
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                  <span className="text-slate-400 block text-[10px] font-semibold">
+                    จัดตำแหน่งขอบผนังกับริมเสา (Align Wall Edge):
+                  </span>
+                  <div className="grid grid-cols-3 gap-1">
+                    <button
+                      onClick={() => handleAlignSelectedWallToColumn('outer_start')}
+                      className="px-2 py-1 bg-slate-900 hover:bg-amber-950 border border-slate-700 hover:border-amber-500 rounded text-[10px] text-slate-200 font-medium transition-colors"
+                      title="ขยับผนังให้อยู่ขอบนอกริมเสา (ซ้าย/บน)"
+                    >
+                      ริมเสานอก (ซ้าย/บน)
+                    </button>
+                    <button
+                      onClick={() => handleAlignSelectedWallToColumn('center')}
+                      className="px-2 py-1 bg-slate-900 hover:bg-sky-950 border border-slate-700 hover:border-sky-500 rounded text-[10px] text-slate-200 font-medium transition-colors"
+                      title="จัดกึ่งกลางเสาตามแนวกริด"
+                    >
+                      เซนเตอร์ (กริด)
+                    </button>
+                    <button
+                      onClick={() => handleAlignSelectedWallToColumn('outer_end')}
+                      className="px-2 py-1 bg-slate-900 hover:bg-amber-950 border border-slate-700 hover:border-amber-500 rounded text-[10px] text-slate-200 font-medium transition-colors"
+                      title="ขยับผนังให้อยู่ขอบนอกริมเสา (ขวา/ล่าง)"
+                    >
+                      ริมเสานอก (ขวา/ล่าง)
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

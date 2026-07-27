@@ -27,6 +27,7 @@ export const ProjectMetadataModal: React.FC<ProjectMetadataModalProps> = ({
 }) => {
   const [formData, setFormData] = useState<SurveyProject>({ ...project });
   const [isLocating, setIsLocating] = useState<boolean>(false);
+  const [selectedModalFloor, setSelectedModalFloor] = useState<number>(1);
 
   if (!isOpen) return null;
 
@@ -124,6 +125,69 @@ export const ProjectMetadataModal: React.FC<ProjectMetadataModalProps> = ({
               />
             </div>
           </div>
+
+          {/* Floor Heights Section (if floors > 1) */}
+          {formData.floorCount > 1 ? (
+            <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-3">
+              <label className="text-slate-300 font-semibold block">
+                🏢 กำหนดความสูงชั้น (แยกตามแต่ละชั้น):
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-slate-400 text-[11px] block">เลือกชั้น:</label>
+                  <select
+                    value={selectedModalFloor}
+                    onChange={(e) => setSelectedModalFloor(parseInt(e.target.value) || 1)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 font-medium"
+                  >
+                    {Array.from({ length: formData.floorCount }, (_, i) => i + 1).map((fNum) => (
+                      <option key={fNum} value={fNum}>
+                        ชั้น {fNum} {fNum === 1 ? '(ชั้นล่าง/Ground)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-slate-400 text-[11px] block">ความสูง ชั้น {selectedModalFloor} (เมตร):</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="1.5"
+                    max="10"
+                    value={
+                      formData.floorHeights?.[`floor_${selectedModalFloor}`] ??
+                      (selectedModalFloor === 1 ? formData.defaultFloorHeight : 3.0)
+                    }
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 3.0;
+                      const newHeights = {
+                        ...(formData.floorHeights || {}),
+                        [`floor_${selectedModalFloor}`]: val,
+                      };
+                      setFormData({
+                        ...formData,
+                        floorHeights: newHeights,
+                        defaultFloorHeight: selectedModalFloor === 1 ? val : formData.defaultFloorHeight,
+                      });
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 font-mono font-bold"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <label className="text-slate-300 font-semibold block">ความสูงชั้นมาตรฐาน (เมตร):</label>
+              <input
+                type="number"
+                step="0.1"
+                value={formData.defaultFloorHeight}
+                onChange={(e) => setFormData({ ...formData, defaultFloorHeight: parseFloat(e.target.value) || 3.0 })}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 font-mono"
+              />
+            </div>
+          )}
 
           {/* Surveyor Name & Date */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
