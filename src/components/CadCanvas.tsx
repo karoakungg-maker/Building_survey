@@ -711,16 +711,16 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
       let newEndY = oldEndY;
 
       if (draggingWallHandle === 'body') {
-        newStartX = Math.max(0, Math.round((oldStartX + dx) * 20) / 20);
-        newStartY = Math.max(0, Math.round((oldStartY + dy) * 20) / 20);
-        newEndX = Math.max(0, Math.round((oldEndX + dx) * 20) / 20);
-        newEndY = Math.max(0, Math.round((oldEndY + dy) * 20) / 20);
+        newStartX = Math.round((oldStartX + dx) * 20) / 20;
+        newStartY = Math.round((oldStartY + dy) * 20) / 20;
+        newEndX = Math.round((oldEndX + dx) * 20) / 20;
+        newEndY = Math.round((oldEndY + dy) * 20) / 20;
       } else if (draggingWallHandle === 'start') {
-        newStartX = Math.max(0, Math.round((oldStartX + dx) * 20) / 20);
-        newStartY = Math.max(0, Math.round((oldStartY + dy) * 20) / 20);
+        newStartX = Math.round((oldStartX + dx) * 20) / 20;
+        newStartY = Math.round((oldStartY + dy) * 20) / 20;
       } else if (draggingWallHandle === 'end') {
-        newEndX = Math.max(0, Math.round((oldEndX + dx) * 20) / 20);
-        newEndY = Math.max(0, Math.round((oldEndY + dy) * 20) / 20);
+        newEndX = Math.round((oldEndX + dx) * 20) / 20;
+        newEndY = Math.round((oldEndY + dy) * 20) / 20;
       }
 
       const dStartX = newStartX - oldStartX;
@@ -750,22 +750,22 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
           let modified = false;
 
           if (Math.abs(w.startX - oldStartX) < EPS && Math.abs(w.startY - oldStartY) < EPS) {
-            wsX = Math.max(0, Math.round((w.startX + dStartX) * 20) / 20);
-            wsY = Math.max(0, Math.round((w.startY + dStartY) * 20) / 20);
+            wsX = Math.round((w.startX + dStartX) * 20) / 20;
+            wsY = Math.round((w.startY + dStartY) * 20) / 20;
             modified = true;
           } else if (Math.abs(w.startX - oldEndX) < EPS && Math.abs(w.startY - oldEndY) < EPS) {
-            wsX = Math.max(0, Math.round((w.startX + dEndX) * 20) / 20);
-            wsY = Math.max(0, Math.round((w.startY + dEndY) * 20) / 20);
+            wsX = Math.round((w.startX + dEndX) * 20) / 20;
+            wsY = Math.round((w.startY + dEndY) * 20) / 20;
             modified = true;
           }
 
           if (Math.abs(w.endX - oldStartX) < EPS && Math.abs(w.endY - oldStartY) < EPS) {
-            weX = Math.max(0, Math.round((w.endX + dStartX) * 20) / 20);
-            weY = Math.max(0, Math.round((w.endY + dStartY) * 20) / 20);
+            weX = Math.round((w.endX + dStartX) * 20) / 20;
+            weY = Math.round((w.endY + dStartY) * 20) / 20;
             modified = true;
           } else if (Math.abs(w.endX - oldEndX) < EPS && Math.abs(w.endY - oldEndY) < EPS) {
-            weX = Math.max(0, Math.round((w.endX + dEndX) * 20) / 20);
-            weY = Math.max(0, Math.round((w.endY + dEndY) * 20) / 20);
+            weX = Math.round((w.endX + dEndX) * 20) / 20;
+            weY = Math.round((w.endY + dEndY) * 20) / 20;
             modified = true;
           }
 
