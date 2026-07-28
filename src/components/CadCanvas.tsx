@@ -43,6 +43,9 @@ import {
   Edit2,
   RefreshCw,
   Wrench,
+  Undo2,
+  Redo2,
+  Sparkles,
 } from 'lucide-react';
 import { exportCanvasToPDF, exportFloorPlanToDXF } from '../lib/exportUtils';
 
@@ -56,6 +59,64 @@ type ToolMode = 'select' | 'pan' | 'column' | 'wall' | 'opening' | 'defect' | 'r
 
 export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPlan, onOpenPrintView }) => {
   const [toolMode, setToolMode] = useState<ToolMode>('select');
+
+  // Undo / Redo History State Stack
+  const [historyStack, setHistoryStack] = useState<FloorPlanData[]>([]);
+  const [redoStack, setRedoStack] = useState<FloorPlanData[]>([]);
+  const prevFloorIdRef = useRef<string>(floorPlan.floorId);
+
+  useEffect(() => {
+    if (prevFloorIdRef.current !== floorPlan.floorId) {
+      prevFloorIdRef.current = floorPlan.floorId;
+      setHistoryStack([]);
+      setRedoStack([]);
+    }
+  }, [floorPlan.floorId]);
+
+  const pushHistoryAndChange = (updatedPlan: FloorPlanData) => {
+    setHistoryStack((prev) => [...prev.slice(-40), floorPlan]);
+    setRedoStack([]);
+    onChangeFloorPlan(updatedPlan);
+  };
+
+  const handleUndo = () => {
+    if (historyStack.length === 0) return;
+    const previousPlan = historyStack[historyStack.length - 1];
+    setHistoryStack((prev) => prev.slice(0, prev.length - 1));
+    setRedoStack((prev) => [floorPlan, ...prev]);
+    onChangeFloorPlan(previousPlan);
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const nextPlan = redoStack[0];
+    setRedoStack((prev) => prev.slice(1));
+    setHistoryStack((prev) => [...prev, floorPlan]);
+    onChangeFloorPlan(nextPlan);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (e.target as HTMLElement)?.tagName;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        if (e.shiftKey) {
+          e.preventDefault();
+          handleRedo();
+        } else {
+          e.preventDefault();
+          handleUndo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [historyStack, redoStack, floorPlan]);
 
   const handleToolModeChange = (newMode: ToolMode) => {
     if (newMode !== 'wall') {
@@ -332,7 +393,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
   const handleDeleteAllWalls = () => {
     if (!floorPlan.walls || floorPlan.walls.length === 0) return;
-    onChangeFloorPlan({
+    pushHistoryAndChange({
       ...floorPlan,
       walls: [],
       openings: [],
@@ -340,6 +401,137 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
     setSelectedWallId(null);
     setSelectedOpeningId(null);
     handleToolModeChange('pan');
+  };
+
+  // ปุ่มเดียวล้างข้อมูลทั้งหมดบนแปลน
+  const handleClearAll = () => {
+    if (window.confirm('คุณต้องการลบข้อมูลทั้งหมดบนแปลน (เหลือเพียงกริด) ใช่หรือไม่?')) {
+      pushHistoryAndChange({
+        ...floorPlan,
+        columns: [],
+        walls: [],
+        openings: [],
+        defects: [],
+        roomPins: [],
+      });
+      setSelectedColId(null);
+      setSelectedWallId(null);
+      setSelectedOpeningId(null);
+      setSelectedDefectId(null);
+      setSelectedRoomId(null);
+    }
+  };
+
+  // ปุ่มเดียวสร้างเสาและผนังทั้งหมดตามจุดตัดกริดเสาที่มีอยู่
+  const handleGenerateAllColumnsAndWalls = () => {
+    const sortedX = [...floorPlan.gridX].sort((a, b) => a.positionMeters - b.positionMeters);
+    const sortedY = [...floorPlan.gridY].sort((a, b) => a.positionMeters - b.positionMeters);
+
+    if (sortedX.length === 0 || sortedY.length === 0) {
+      alert('กรุณามีกริดเสาอย่างน้อยในแนว X และ Y เพื่อสร้างเสาและผนังอัตโนมัติ');
+      return;
+    }
+
+    // 1. สร้างเสาประจำทุกจุดตัดกริด (Intersection)
+    const newColumns: ColumnItem[] = [];
+    sortedX.forEach((gx) => {
+      sortedY.forEach((gy) => {
+        const exists = (floorPlan.columns || []).some(
+          (c) => Math.abs(c.x - gx.positionMeters) < 0.1 && Math.abs(c.y - gy.positionMeters) < 0.1
+        );
+        if (!exists) {
+          newColumns.push({
+            id: `col_gen_${gx.id}_${gy.id}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            x: gx.positionMeters,
+            y: gy.positionMeters,
+            widthCm: 20,
+            depthCm: 20,
+            gridXLabel: gx.label,
+            gridYLabel: gy.label,
+            shape: 'rectangular',
+            material: 'RC',
+            condition: 'good',
+          });
+        }
+      });
+    });
+
+    const mergedColumns = [...(floorPlan.columns || []), ...newColumns];
+
+    // 2. สร้างผนังเชื่อมระหว่างจุดตัดกริดข้างเคียง
+    const newWalls: WallItem[] = [];
+
+    // ผนังแนวนอน (Horizontal walls)
+    sortedY.forEach((gy) => {
+      for (let i = 0; i < sortedX.length - 1; i++) {
+        const gx1 = sortedX[i];
+        const gx2 = sortedX[i + 1];
+        const x1 = gx1.positionMeters;
+        const x2 = gx2.positionMeters;
+        const y = gy.positionMeters;
+
+        const exists = (floorPlan.walls || []).some(
+          (w) =>
+            Math.abs(w.startY - y) < 0.1 &&
+            Math.abs(w.endY - y) < 0.1 &&
+            ((Math.abs(w.startX - x1) < 0.1 && Math.abs(w.endX - x2) < 0.1) ||
+              (Math.abs(w.startX - x2) < 0.1 && Math.abs(w.endX - x1) < 0.1))
+        );
+
+        if (!exists) {
+          newWalls.push({
+            id: `wall_gen_h_${gy.id}_${i}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            startX: x1,
+            startY: y,
+            endX: x2,
+            endY: y,
+            thicknessCm: 10,
+            material: 'half_brick',
+            condition: 'good',
+          });
+        }
+      }
+    });
+
+    // ผนังแนวตั้ง (Vertical walls)
+    sortedX.forEach((gx) => {
+      for (let j = 0; j < sortedY.length - 1; j++) {
+        const gy1 = sortedY[j];
+        const gy2 = sortedY[j + 1];
+        const x = gx.positionMeters;
+        const y1 = gy1.positionMeters;
+        const y2 = gy2.positionMeters;
+
+        const exists = (floorPlan.walls || []).some(
+          (w) =>
+            Math.abs(w.startX - x) < 0.1 &&
+            Math.abs(w.endX - x) < 0.1 &&
+            ((Math.abs(w.startY - y1) < 0.1 && Math.abs(w.endY - y2) < 0.1) ||
+              (Math.abs(w.startY - y2) < 0.1 && Math.abs(w.endY - y1) < 0.1))
+        );
+
+        if (!exists) {
+          newWalls.push({
+            id: `wall_gen_v_${gx.id}_${j}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            startX: x,
+            startY: y1,
+            endX: x,
+            endY: y2,
+            thicknessCm: 10,
+            material: 'half_brick',
+            condition: 'good',
+          });
+        }
+      }
+    });
+
+    const mergedWalls = [...(floorPlan.walls || []), ...newWalls];
+
+    pushHistoryAndChange({
+      ...floorPlan,
+      columns: mergedColumns,
+      walls: mergedWalls,
+    });
   };
   const [draggingWallId, setDraggingWallId] = useState<string | null>(null);
   const [draggingWallHandle, setDraggingWallHandle] = useState<'start' | 'end' | 'body' | null>(null);
@@ -586,64 +778,56 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
     });
   };
 
-  // Get minimum zoom limit (fixed to grid bounds + 3 meters / 3 background grid cells offset on each side)
+  // Get minimum zoom limit
   const getMinZoom = () => {
-    const container = containerRef.current;
-    const rect = container?.getBoundingClientRect();
-    const cWidth = rect?.width && rect.width > 0 ? rect.width : (typeof window !== 'undefined' ? window.innerWidth : 800);
-    const cHeight = rect?.height && rect.height > 0 ? rect.height : (typeof window !== 'undefined' ? window.innerHeight : 600);
-
-    const gridXPositions = floorPlan.gridX?.length ? floorPlan.gridX.map((g) => g.positionMeters) : [0, 10];
-    const gridYPositions = floorPlan.gridY?.length ? floorPlan.gridY.map((g) => g.positionMeters) : [0, 10];
-
-    const minX = Math.min(...gridXPositions);
-    const maxX = Math.max(...gridXPositions);
-    const minY = Math.min(...gridYPositions);
-    const maxY = Math.max(...gridYPositions);
-
-    const gridWidth = Math.max(maxX - minX, 1);
-    const gridHeight = Math.max(maxY - minY, 1);
-
-    // Offset out 3 background grid cells = 3 meters on each side (+6m total width & height)
-    const paddedWidth = gridWidth + 6;
-    const paddedHeight = gridHeight + 6;
-
-    const calculatedMinZoom = Math.min(cWidth / paddedWidth, cHeight / paddedHeight);
-    return Math.max(5, Math.round(calculatedMinZoom * 10) / 10);
+    return 10;
   };
 
-  // Fit to View
+  // Fit to View (Adjusts zoom and pan so the ENTIRE floorplan grid is centered and fills the viewport nicely)
   const fitToView = () => {
     const container = containerRef.current;
     if (!container) return;
 
     const rect = container.getBoundingClientRect();
-    const containerWidth = rect.width;
-    const containerHeight = rect.height;
+    const containerWidth = rect.width > 0 ? rect.width : (typeof window !== 'undefined' ? window.innerWidth : 800);
+    const containerHeight = rect.height > 0 ? rect.height : (typeof window !== 'undefined' ? window.innerHeight : 600);
 
-    // Calculate bounding box of all grid lines
-    const gridXPositions = floorPlan.gridX?.length ? floorPlan.gridX.map((g) => g.positionMeters) : [0, 10];
-    const gridYPositions = floorPlan.gridY?.length ? floorPlan.gridY.map((g) => g.positionMeters) : [0, 10];
+    // Calculate bounding box of all grid lines and elements
+    const gridXPositions = floorPlan.gridX?.length ? floorPlan.gridX.map((g) => g.positionMeters) : [0, 8];
+    const gridYPositions = floorPlan.gridY?.length ? floorPlan.gridY.map((g) => g.positionMeters) : [0, 4];
+    const colXPositions = floorPlan.columns?.map((c) => c.x) || [];
+    const colYPositions = floorPlan.columns?.map((c) => c.y) || [];
+    const wallXPositions = floorPlan.walls?.flatMap((w) => [w.startX, w.endX]) || [];
+    const wallYPositions = floorPlan.walls?.flatMap((w) => [w.startY, w.endY]) || [];
 
-    const minX = Math.min(...gridXPositions);
-    const maxX = Math.max(...gridXPositions);
-    const minY = Math.min(...gridYPositions);
-    const maxY = Math.max(...gridYPositions);
+    const minX = Math.min(...gridXPositions, ...colXPositions, ...wallXPositions, 0);
+    const maxX = Math.max(...gridXPositions, ...colXPositions, ...wallXPositions, 6);
+    const minY = Math.min(...gridYPositions, ...colYPositions, ...wallYPositions, 0);
+    const maxY = Math.max(...gridYPositions, ...colYPositions, ...wallYPositions, 4);
 
     const width = Math.max(maxX - minX, 1);
     const height = Math.max(maxY - minY, 1);
 
-    const paddedWidth = width + 6;
-    const paddedHeight = height + 6;
+    // Margin padding (2.8 meters on each side to leave ample room for bubbles & dimensions)
+    const padX = 2.8;
+    const padY = 2.8;
 
-    const minZoomLimit = getMinZoom();
-    const calculatedZoom = Math.min(containerWidth / paddedWidth, containerHeight / paddedHeight);
-    const finalZoom = Math.min(Math.max(calculatedZoom, minZoomLimit), 300);
+    const paddedWidth = width + padX * 2;
+    const paddedHeight = height + padY * 2;
+
+    const zoomX = containerWidth / paddedWidth;
+    const zoomY = containerHeight / paddedHeight;
+
+    // Use the smaller zoom factor to guarantee the entire floorplan fits in view
+    const calculatedZoom = Math.min(zoomX, zoomY);
+
+    // Smooth scaling range
+    const finalZoom = Math.min(Math.max(calculatedZoom, 15), 180);
 
     setZoom(finalZoom);
 
-    const minPaddedX = minX - 3;
-    const minPaddedY = minY - 3;
+    const minPaddedX = minX - padX;
+    const minPaddedY = minY - padY;
 
     setPan({
       x: (containerWidth - paddedWidth * finalZoom) / 2 - minPaddedX * finalZoom,
@@ -651,28 +835,96 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
     });
   };
 
-  // Auto fit grid to view on initial load or floor change
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 800, height: 600 });
+
+  // Auto fit grid to view on initial load, floor change, or container resize
   useEffect(() => {
+    const updateSize = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          setContainerSize({ width: rect.width, height: rect.height });
+        }
+      }
+    };
+    updateSize();
+
     const timer = setTimeout(() => {
       fitToView();
-    }, 100);
-    return () => clearTimeout(timer);
+    }, 60);
+
+    if (!containerRef.current) return () => clearTimeout(timer);
+
+    const observer = new ResizeObserver(() => {
+      updateSize();
+      fitToView();
+    });
+    observer.observe(containerRef.current);
+
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
   }, [floorPlan.floorId]);
 
-  // Helper for symmetric grid bounds (Equal X and Y expansion)
-  const maxSpan = useMemo(() => {
-    const gridXMax = Math.max(...floorPlan.gridX.map((g) => g.positionMeters), 15);
-    const gridYMax = Math.max(...floorPlan.gridY.map((g) => g.positionMeters), 15);
-    const colMax = Math.max(...floorPlan.columns.map((c) => Math.max(c.x, c.y)), 0);
-    const wallMax = Math.max(
-      ...floorPlan.walls.map((w) => Math.max(w.startX, w.endX, w.startY, w.endY)),
-      0
-    );
-    return Math.max(gridXMax, gridYMax, colMax, wallMax, 25);
-  }, [floorPlan.gridX, floorPlan.gridY, floorPlan.columns, floorPlan.walls]);
+  // Extended grid line length (Dynamically scaled to fill the entire workspace viewport)
+  const maxSpanX = useMemo(() => {
+    const gridXMax = floorPlan.gridX.length ? Math.max(...floorPlan.gridX.map((g) => g.positionMeters)) : 8;
+    const colMax = floorPlan.columns.length ? Math.max(...floorPlan.columns.map((c) => c.x)) : 0;
+    const wallMax = floorPlan.walls.length ? Math.max(...floorPlan.walls.map((w) => Math.max(w.startX, w.endX))) : 0;
+    return Math.max(gridXMax, colMax, wallMax, 8);
+  }, [floorPlan.gridX, floorPlan.columns, floorPlan.walls]);
 
-  const extendedGridX = useMemo(() => Math.max(maxSpan + 35, 60), [maxSpan]);
-  const extendedGridY = useMemo(() => Math.max(maxSpan + 35, 60), [maxSpan]);
+  const maxSpanY = useMemo(() => {
+    const gridYMax = floorPlan.gridY.length ? Math.max(...floorPlan.gridY.map((g) => g.positionMeters)) : 6;
+    const colMax = floorPlan.columns.length ? Math.max(...floorPlan.columns.map((c) => c.y)) : 0;
+    const wallMax = floorPlan.walls.length ? Math.max(...floorPlan.walls.map((w) => Math.max(w.startY, w.endY))) : 0;
+    return Math.max(gridYMax, colMax, wallMax, 6);
+  }, [floorPlan.gridY, floorPlan.columns, floorPlan.walls]);
+
+  const extendedGridX = useMemo(() => {
+    const visibleMetersX = (containerSize.width - pan.x) / (zoom || 1);
+    return Math.max(maxSpanX + 4, visibleMetersX + 2, 25);
+  }, [maxSpanX, containerSize.width, pan.x, zoom]);
+
+  const extendedGridY = useMemo(() => {
+    const visibleMetersY = (containerSize.height - pan.y) / (zoom || 1);
+    return Math.max(maxSpanY + 4, visibleMetersY + 2, 25);
+  }, [maxSpanY, containerSize.height, pan.y, zoom]);
+
+  // Projected workspace extension grid lines Y (Horizontal projected guide lines that span across the empty bottom space)
+  const projectedYPositions = useMemo(() => {
+    if (sortedGridY.length === 0) return [];
+    const lastY = sortedGridY[sortedGridY.length - 1].positionMeters;
+    const secondLastY = sortedGridY.length > 1 ? sortedGridY[sortedGridY.length - 2].positionMeters : 0;
+    const step = Math.max(1, Math.round((lastY - secondLastY) * 10) / 10) || 4;
+
+    const list: number[] = [];
+    let curr = lastY + step;
+    const targetY = Math.max(extendedGridY, 30);
+    while (curr <= targetY) {
+      list.push(Math.round(curr * 100) / 100);
+      curr += step;
+    }
+    return list;
+  }, [sortedGridY, extendedGridY]);
+
+  // Projected workspace extension grid lines X (Vertical projected guide lines that span across the right space)
+  const projectedXPositions = useMemo(() => {
+    if (sortedGridX.length === 0) return [];
+    const lastX = sortedGridX[sortedGridX.length - 1].positionMeters;
+    const secondLastX = sortedGridX.length > 1 ? sortedGridX[sortedGridX.length - 2].positionMeters : 0;
+    const step = Math.max(1, Math.round((lastX - secondLastX) * 10) / 10) || 4;
+
+    const list: number[] = [];
+    let curr = lastX + step;
+    const targetX = Math.max(extendedGridX, 30);
+    while (curr <= targetX) {
+      list.push(Math.round(curr * 100) / 100);
+      curr += step;
+    }
+    return list;
+  }, [sortedGridX, extendedGridX]);
 
   // Handle Wheel Zooming
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -702,7 +954,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
   // Unified Drag Start Helpers for Mouse / Touch / Pointer
   const handleStartDragCol = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, colId: string) => {
-    if (toolMode === 'wall' || toolMode === 'opening') return;
+    if (toolMode === 'wall' || toolMode === 'opening' || selectedWallId) return;
     e.stopPropagation();
     setSelectedColId(colId);
     setSelectedWallId(null);
@@ -715,6 +967,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
   const handleStartDragWallBody = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, wall: WallItem) => {
     if (toolMode === 'wall' || toolMode === 'opening') return;
+    if (selectedWallId && selectedWallId !== wall.id) return;
     e.stopPropagation();
     setSelectedWallId(wall.id);
     setSelectedColId(null);
@@ -752,6 +1005,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
     handle: 'start' | 'end'
   ) => {
     if (toolMode === 'wall' || toolMode === 'opening') return;
+    if (selectedWallId && selectedWallId !== wall.id) return;
     e.stopPropagation();
     setSelectedWallId(wall.id);
     setSelectedColId(null);
@@ -784,7 +1038,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   };
 
   const handleStartDragOpening = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, opId: string) => {
-    if (toolMode === 'wall' || toolMode === 'opening') return;
+    if (toolMode === 'wall' || toolMode === 'opening' || selectedWallId) return;
     e.stopPropagation();
     setSelectedOpeningId(opId);
     setSelectedColId(null);
@@ -796,7 +1050,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   };
 
   const handleStartDragRoom = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent, roomId: string) => {
-    if (toolMode === 'wall' || toolMode === 'opening') return;
+    if (toolMode === 'wall' || toolMode === 'opening' || selectedWallId) return;
     e.stopPropagation();
     setSelectedRoomId(roomId);
     setSelectedColId(null);
@@ -883,7 +1137,10 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
       const dx = e.touches[0].clientX - touchState.current.lastX;
       const dy = e.touches[0].clientY - touchState.current.lastY;
       if (toolMode === 'pan' || isPanning || e.target === containerRef.current) {
-        setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+        setPan((prev) => ({ 
+          x: Math.min(prev.x + dx, 160), 
+          y: Math.min(prev.y + dy, 160) 
+        }));
       }
       touchState.current.lastX = e.touches[0].clientX;
       touchState.current.lastY = e.touches[0].clientY;
@@ -955,8 +1212,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
         clientY = (e as any).clientY;
       }
       setPan({
-        x: clientX - startPan.x,
-        y: clientY - startPan.y,
+        x: Math.min(clientX - startPan.x, 160),
+        y: Math.min(clientY - startPan.y, 160),
       });
       return;
     }
@@ -1046,20 +1303,22 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
       } else if (draggingWallHandle === 'start') {
         newStartX = Math.round((oldStartX + dx) * 20) / 20;
         newStartY = Math.round((oldStartY + dy) * 20) / 20;
-        if (isOrthoLocked || isHorizontal) {
-          newStartY = oldStartY;
-        }
-        if (isOrthoLocked || isVertical) {
-          newStartX = oldStartX;
+        if (isOrthoLocked) {
+          if (isHorizontal) {
+            newStartY = oldStartY;
+          } else if (isVertical) {
+            newStartX = oldStartX;
+          }
         }
       } else if (draggingWallHandle === 'end') {
         newEndX = Math.round((oldEndX + dx) * 20) / 20;
         newEndY = Math.round((oldEndY + dy) * 20) / 20;
-        if (isOrthoLocked || isHorizontal) {
-          newEndY = oldEndY;
-        }
-        if (isOrthoLocked || isVertical) {
-          newEndX = oldEndX;
+        if (isOrthoLocked) {
+          if (isHorizontal) {
+            newEndY = oldEndY;
+          } else if (isVertical) {
+            newEndX = oldEndX;
+          }
         }
       }
 
@@ -1199,6 +1458,15 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
       }
     });
 
+    projectedXPositions.forEach((px) => {
+      const dist = Math.abs(px - meterPos.x);
+      if (dist < minXDist) {
+        minXDist = dist;
+        closestX = px;
+        closestXLabel = `+${px}m`;
+      }
+    });
+
     let closestY = meterPos.y;
     let closestYLabel = '';
     let minYDist = Infinity;
@@ -1209,6 +1477,15 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
         minYDist = dist;
         closestY = gy.positionMeters;
         closestYLabel = gy.label;
+      }
+    });
+
+    projectedYPositions.forEach((py) => {
+      const dist = Math.abs(py - meterPos.y);
+      if (dist < minYDist) {
+        minYDist = dist;
+        closestY = py;
+        closestYLabel = `+${py}m`;
       }
     });
 
@@ -1661,32 +1938,32 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
   // Delete Handlers
   const handleDeleteSelected = () => {
     if (selectedColId) {
-      onChangeFloorPlan({
+      pushHistoryAndChange({
         ...floorPlan,
         columns: floorPlan.columns.filter((c) => c.id !== selectedColId),
       });
       setSelectedColId(null);
     } else if (selectedWallId) {
-      onChangeFloorPlan({
+      pushHistoryAndChange({
         ...floorPlan,
         walls: floorPlan.walls.filter((w) => w.id !== selectedWallId),
         openings: floorPlan.openings.filter((o) => o.wallId !== selectedWallId),
       });
       setSelectedWallId(null);
     } else if (selectedOpeningId) {
-      onChangeFloorPlan({
+      pushHistoryAndChange({
         ...floorPlan,
         openings: floorPlan.openings.filter((o) => o.id !== selectedOpeningId),
       });
       setSelectedOpeningId(null);
     } else if (selectedDefectId) {
-      onChangeFloorPlan({
+      pushHistoryAndChange({
         ...floorPlan,
         defectPins: floorPlan.defectPins.filter((d) => d.id !== selectedDefectId),
       });
       setSelectedDefectId(null);
     } else if (selectedRoomId) {
-      onChangeFloorPlan({
+      pushHistoryAndChange({
         ...floorPlan,
         roomPins: (floorPlan.roomPins || []).filter((r) => r.id !== selectedRoomId),
       });
@@ -2013,18 +2290,15 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
             {/* Zoom controls */}
             <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 gap-0.5 shrink-0">
               <button
-                onClick={() => {
-                  const minZoomLimit = getMinZoom();
-                  setZoom((z) => Math.max(minZoomLimit, z - 5));
-                }}
+                onClick={() => setZoom((z) => Math.max(10, Math.round(z - 10)))}
                 className="p-1 hover:bg-slate-800 rounded text-slate-300"
                 title="ย่อขนาด"
               >
                 <ZoomOut className="w-3.5 h-3.5" />
               </button>
-              <span className="text-[10px] sm:text-[11px] font-mono px-1 text-slate-400 font-semibold">{zoom}px/m</span>
+              <span className="text-[10px] sm:text-[11px] font-mono px-1 text-slate-400 font-semibold">{Math.round(zoom)}px/m</span>
               <button
-                onClick={() => setZoom((z) => Math.min(100, z + 5))}
+                onClick={() => setZoom((z) => Math.min(300, Math.round(z + 10)))}
                 className="p-1 hover:bg-slate-800 rounded text-slate-300"
                 title="ขยายขนาด"
               >
@@ -2039,8 +2313,8 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
               </button>
               <button
                 onClick={() => {
-                  setZoom(45);
-                  setPan({ x: 160, y: 160 });
+                  setZoom(60);
+                  setPan({ x: 120, y: 120 });
                 }}
                 className="p-1 hover:bg-slate-800 rounded text-slate-300 ml-0.5"
                 title="รีเซ็ตมุมมอง"
@@ -2051,177 +2325,229 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
           </div>
         </div>
 
-        {/* Top Horizontal Tool Menu */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs shrink-0 scrollbar-thin">
-          <div className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 shrink-0">
-            <button
-              onClick={() => handleToolModeChange('select')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
-                toolMode === 'select'
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
-              }`}
-              title="เลือก/ย้ายองค์ประกอบ"
-            >
-              <Move className="w-3.5 h-3.5" />
-              <span>เลือก</span>
-            </button>
+        {/* Top 2-Row Horizontal Tool Menu */}
+        <div className="flex flex-col gap-1.5 pb-1 text-xs shrink-0 bg-slate-950/80 border-b border-slate-800/80 p-1.5 rounded-xl backdrop-blur">
+          {/* Row 1: Primary Drawing & Element Selection Tools */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin shrink-0">
+            <div className="flex items-center gap-2 bg-slate-900/90 p-2 rounded-2xl border border-slate-800 shrink-0">
+              <button
+                onClick={() => handleToolModeChange('select')}
+                className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 ${
+                  toolMode === 'select'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+                title="เลือก/ย้ายองค์ประกอบ"
+              >
+                <Move className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span>เลือก</span>
+              </button>
 
-            <button
-              onClick={() => handleToolModeChange('pan')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
-                toolMode === 'pan'
-                  ? 'bg-sky-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
-              }`}
-              title="มือจับลากแปลน (Pan Canvas)"
-            >
-              <Hand className="w-3.5 h-3.5" />
-              <span>เลื่อน</span>
-            </button>
+              <button
+                onClick={() => handleToolModeChange('pan')}
+                className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 ${
+                  toolMode === 'pan'
+                    ? 'bg-sky-600 text-white shadow-lg shadow-sky-900/20'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+                title="มือจับลากแปลน (Pan Canvas)"
+              >
+                <Hand className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span>เลื่อน</span>
+              </button>
+            </div>
+
+            <div className="h-12 w-px bg-slate-800 shrink-0" />
+
+            <div className="flex items-center gap-2 bg-slate-900/90 p-2 rounded-2xl border border-slate-800 shrink-0">
+              <button
+                onClick={() => {
+                  handleToolModeChange('column');
+                  setSelectedWallId(null);
+                  setSelectedOpeningId(null);
+                }}
+                className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 ${
+                  toolMode === 'column'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+                title="วางตำแหน่งเสา"
+              >
+                <Columns className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span>เสา</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  handleToolModeChange('wall');
+                  setSelectedColId(null);
+                  setSelectedOpeningId(null);
+                }}
+                className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 ${
+                  toolMode === 'wall'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+                title="ลากเส้นผนัง"
+              >
+                <Square className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span>ผนัง</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  handleToolModeChange('opening');
+                  setSelectedColId(null);
+                  setSelectedWallId(null);
+                }}
+                className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 ${
+                  toolMode === 'opening'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+                title="ใส่ช่องประตูและหน้าต่าง"
+              >
+                <DoorClosed className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span>ประตู/หน้าต่าง</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  handleToolModeChange('defect');
+                  setSelectedColId(null);
+                  setSelectedWallId(null);
+                  setSelectedOpeningId(null);
+                  setSelectedRoomId(null);
+                }}
+                className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 ${
+                  toolMode === 'defect'
+                    ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/20'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+                title="ปักหมุดแนบรูปถ่ายสำรวจ"
+              >
+                <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-rose-300" />
+                <span>พินรูปถ่าย</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  handleToolModeChange('room');
+                  setSelectedColId(null);
+                  setSelectedWallId(null);
+                  setSelectedOpeningId(null);
+                  setSelectedDefectId(null);
+                }}
+                className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 ${
+                  toolMode === 'room'
+                    ? 'bg-orange-600 text-white shadow-lg shadow-orange-900/20'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+                title="ปักหมุดชื่อห้องและคำนวณพื้นที่"
+              >
+                <MapPin className="w-4 h-4 sm:w-5 sm:h-5 text-orange-300" />
+                <span>หมุดห้อง</span>
+              </button>
+
+              <button
+                onClick={() => handleToolModeChange('grid_edit')}
+                className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 ${
+                  toolMode === 'grid_edit'
+                    ? 'bg-amber-600 text-white shadow-lg shadow-amber-900/20'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+                title="จัดการระยะกริดเสา"
+              >
+                <Grid className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span>กริด</span>
+              </button>
+            </div>
           </div>
 
-          <div className="h-5 w-px bg-slate-800 shrink-0" />
+          {/* Row 2: Management, Undo/Redo, Ortho Lock, Auto-Generate & Clear All */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin shrink-0">
+            {/* Undo & Redo Group */}
+            <div className="flex items-center gap-2 bg-slate-900/90 p-2 rounded-2xl border border-slate-800 shrink-0">
+              <button
+                onClick={handleUndo}
+                disabled={historyStack.length === 0}
+                className="relative p-2 rounded-lg text-sky-400 hover:bg-slate-800 disabled:opacity-50 transition-all active:scale-95 shrink-0"
+                title="ย้อนกลับการกระทำล่าสุด (Ctrl+Z)"
+              >
+                <Undo2 className="w-5 h-5" />
+                {historyStack.length > 0 && (
+                  <span className="absolute -top-1 -right-1 text-[10px] bg-slate-800 text-sky-300 px-1 rounded-full font-mono">{historyStack.length}</span>
+                )}
+              </button>
 
-          <div className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 shrink-0">
+              <button
+                onClick={handleRedo}
+                disabled={redoStack.length === 0}
+                className="relative p-2 rounded-lg text-sky-400 hover:bg-slate-800 disabled:opacity-50 transition-all active:scale-95 shrink-0"
+                title="ทำซ้ำการกระทำถัดไป (Ctrl+Y)"
+              >
+                <Redo2 className="w-5 h-5" />
+                {redoStack.length > 0 && (
+                  <span className="absolute -top-1 -right-1 text-[10px] bg-slate-800 text-sky-300 px-1 rounded-full font-mono">{redoStack.length}</span>
+                )}
+              </button>
+            </div>
+
+            <div className="h-12 w-px bg-slate-800 shrink-0" />
+
+            {/* Toggle Ortho Lock */}
             <button
-              onClick={() => {
-                handleToolModeChange('column');
-                setSelectedWallId(null);
-                setSelectedOpeningId(null);
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
-                toolMode === 'column'
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
+              onClick={() => setIsOrthoLocked(!isOrthoLocked)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all border shrink-0 ${
+                isOrthoLocked
+                  ? 'bg-amber-950/80 text-amber-300 border-amber-700'
+                  : 'bg-transparent text-slate-400 border-transparent hover:bg-slate-800 hover:text-slate-100'
               }`}
-              title="วางตำแหน่งเสา"
+              title="เปิด/ปิด การตั้งฉากแนวตั้ง-แนวนอน"
             >
-              <Columns className="w-3.5 h-3.5" />
-              <span>เสา</span>
+              {isOrthoLocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+              <span className="text-sm font-medium">ฉาก</span>
             </button>
 
-            <button
-              onClick={() => {
-                handleToolModeChange('wall');
-                setSelectedColId(null);
-                setSelectedOpeningId(null);
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
-                toolMode === 'wall'
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
-              }`}
-              title="ลากเส้นผนัง"
-            >
-              <Square className="w-3.5 h-3.5" />
-              <span>ผนัง</span>
-            </button>
+            <div className="h-12 w-px bg-slate-800 shrink-0" />
 
-            <button
-              onClick={() => {
-                handleToolModeChange('opening');
-                setSelectedColId(null);
-                setSelectedWallId(null);
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
-                toolMode === 'opening'
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
-              }`}
-              title="ใส่ช่องประตูและหน้าต่าง"
-            >
-              <DoorClosed className="w-3.5 h-3.5" />
-              <span>ประตู/หน้าต่าง</span>
-            </button>
+              {/* Bulk Actions: Clear All */}
+              <button
+                onClick={handleClearAll}
+                disabled={(!floorPlan.columns || floorPlan.columns.length === 0) && (!floorPlan.walls || floorPlan.walls.length === 0) && (!floorPlan.openings || floorPlan.openings.length === 0) && (!floorPlan.defects || floorPlan.defects.length === 0) && (!floorPlan.roomPins || floorPlan.roomPins.length === 0)}
+                className={`flex items-center gap-3 px-6 py-3 rounded-xl text-base font-semibold transition-all shrink-0 ${
+                  (floorPlan.columns || []).length > 0 || (floorPlan.walls || []).length > 0 || (floorPlan.openings || []).length > 0 || (floorPlan.defects || []).length > 0 || (floorPlan.roomPins || []).length > 0
+                    ? 'bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/80 shadow-lg active:scale-95 cursor-pointer'
+                    : 'bg-slate-900/50 text-slate-600 border border-slate-800/50 cursor-not-allowed opacity-50'
+                }`}
+                title="ลบข้อมูลทั้งหมดที่วางบนแปลน เหลือเพียงกริด"
+              >
+                <Trash2 className="w-6 h-6 text-rose-400" />
+                <span>ล้างทั้งหมด</span>
+              </button>
 
-            <button
-              onClick={() => {
-                handleToolModeChange('defect');
-                setSelectedColId(null);
-                setSelectedWallId(null);
-                setSelectedOpeningId(null);
-                setSelectedRoomId(null);
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
-                toolMode === 'defect'
-                  ? 'bg-rose-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
-              }`}
-              title="ปักหมุดแนบรูปถ่ายสำรวจ"
-            >
-              <Camera className="w-3.5 h-3.5 text-rose-300" />
-              <span>พินรูปถ่าย</span>
-            </button>
+            <div className="h-12 w-px bg-slate-800 shrink-0" />
 
+            {/* Delete Selection */}
             <button
-              onClick={() => {
-                handleToolModeChange('room');
-                setSelectedColId(null);
-                setSelectedWallId(null);
-                setSelectedOpeningId(null);
-                setSelectedDefectId(null);
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
-                toolMode === 'room'
-                  ? 'bg-orange-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
+              onClick={handleDeleteSelected}
+              disabled={!(selectedColId || selectedWallId || selectedOpeningId || selectedDefectId || selectedRoomId)}
+              className={`flex items-center gap-3 px-6 py-3 rounded-2xl text-base font-semibold transition-all border shrink-0 ${
+                selectedColId || selectedWallId || selectedOpeningId || selectedDefectId || selectedRoomId
+                  ? 'bg-red-600 hover:bg-red-500 text-white border-red-500 shadow-lg shadow-red-900/20 cursor-pointer animate-pulse'
+                  : 'bg-slate-900/60 text-slate-500 border-slate-800/80 cursor-not-allowed opacity-60'
               }`}
-              title="ปักหมุดชื่อห้องและคำนวณพื้นที่"
+              title="ลบรายการที่เลือก"
             >
-              <MapPin className="w-3.5 h-3.5 text-orange-300" />
-              <span>หมุดห้อง</span>
-            </button>
-
-            <button
-              onClick={() => handleToolModeChange('grid_edit')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
-                toolMode === 'grid_edit'
-                  ? 'bg-amber-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
-              }`}
-              title="จัดการระยะกริดเสา"
-            >
-              <Grid className="w-3.5 h-3.5" />
-              <span>กริด</span>
+              <Trash2 className={`w-6 h-6 ${selectedColId || selectedWallId || selectedOpeningId || selectedDefectId || selectedRoomId ? 'text-white' : 'text-slate-500'}`} />
+              <span>ลบที่เลือก</span>
             </button>
           </div>
-
-          <div className="h-5 w-px bg-slate-800 shrink-0" />
-
-          {/* Toggle Ortho Lock */}
-          <button
-            onClick={() => setIsOrthoLocked(!isOrthoLocked)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all border shrink-0 ${
-              isOrthoLocked
-                ? 'bg-amber-950/80 text-amber-300 border-amber-700 shadow-sm'
-                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
-            }`}
-            title="เปิด/ปิด การตั้งฉากแนวตั้ง-แนวนอน"
-          >
-            {isOrthoLocked ? <Lock className="w-3.5 h-3.5 text-amber-400" /> : <Unlock className="w-3.5 h-3.5 text-slate-400" />}
-            <span>ฉาก {isOrthoLocked ? 'เปิด' : 'ปิด'}</span>
-          </button>
-
-          {/* Delete selection */}
-          <button
-            onClick={handleDeleteSelected}
-            disabled={!(selectedColId || selectedWallId || selectedOpeningId || selectedDefectId || selectedRoomId)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all border shrink-0 ${
-              selectedColId || selectedWallId || selectedOpeningId || selectedDefectId || selectedRoomId
-                ? 'bg-red-600 hover:bg-red-500 text-white border-red-500 shadow-md cursor-pointer animate-pulse'
-                : 'bg-slate-900/60 text-slate-500 border-slate-800/80 cursor-not-allowed opacity-60'
-            }`}
-            title="ลบรายการที่เลือก"
-          >
-            <Trash2 className={`w-3.5 h-3.5 ${selectedColId || selectedWallId || selectedOpeningId || selectedDefectId || selectedRoomId ? 'text-white' : 'text-slate-500'}`} />
-            <span>ลบ</span>
-          </button>
         </div>
       </div>
 
       {/* Main Canvas Workspace with Inspector Control Panel */}
-      <div id="cad-canvas-workspace" className="flex-1 flex flex-col landscape:flex-row lg:flex-row relative overflow-hidden bg-slate-950 h-full min-h-0">
+      <div id="cad-canvas-workspace" className="flex-1 flex flex-col landscape:flex-row lg:flex-row relative overflow-hidden bg-slate-950 min-h-0">
 
         {/* SVG Interactive Canvas */}
         <div
@@ -2233,7 +2559,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
-          className={`flex-1 w-full h-full min-h-[380px] sm:min-h-[500px] relative overflow-hidden select-none ${
+          className={`flex-1 w-full h-[700px] relative overflow-hidden select-none ${
             isPanning ? 'cursor-grabbing' : (toolMode === 'pan' ? 'cursor-grab' : 'cursor-crosshair')
           }`}
         >
@@ -2273,14 +2599,15 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
             style={{ touchAction: 'none' }}
           >
             <defs>
-              {/* Minor grid pattern */}
+              {/* Minor grid pattern (0.5m) */}
               <pattern 
                 id="cadGridMinor" 
                 width={zoom / 2} 
                 height={zoom / 2} 
                 patternUnits="userSpaceOnUse"
+                patternTransform={`translate(${pan.x - (floorPlan.gridX[0]?.positionMeters || 0) * zoom}, ${pan.y - (floorPlan.gridY[0]?.positionMeters || 0) * zoom})`}
               >
-                <path d={`M ${zoom / 2} 0 L 0 0 0 ${zoom / 2}`} fill="none" stroke="#1e293b" strokeWidth="0.5" />
+                <path d={`M ${zoom / 2} 0 L 0 0 0 ${zoom / 2}`} fill="none" stroke="#334155" strokeWidth="0.5" opacity="0.6" />
               </pattern>
               {/* Major 1-meter grid pattern */}
               <pattern 
@@ -2288,15 +2615,26 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                 width={zoom} 
                 height={zoom} 
                 patternUnits="userSpaceOnUse"
-                patternTransform={`translate(${-(sortedGridX[0]?.positionMeters || 0) * zoom + pan.x}, ${-(sortedGridY[0]?.positionMeters || 0) * zoom + pan.y})`}
+                patternTransform={`translate(${pan.x - (floorPlan.gridX[0]?.positionMeters || 0) * zoom}, ${pan.y - (floorPlan.gridY[0]?.positionMeters || 0) * zoom})`}
               >
                 <rect width={zoom} height={zoom} fill="url(#cadGridMinor)" />
-                <path d={`M ${zoom} 0 L 0 0 0 ${zoom}`} fill="none" stroke="#334155" strokeWidth="1" />
+                <path d={`M ${zoom} 0 L 0 0 0 ${zoom}`} fill="none" stroke="#1e3a8a" strokeWidth="0.8" opacity="0.7" />
+              </pattern>
+              {/* Major 5-meter grid pattern for clear CAD structural layout across workspace */}
+              <pattern 
+                id="cadGrid5m" 
+                width={zoom * 5} 
+                height={zoom * 5} 
+                patternUnits="userSpaceOnUse"
+                patternTransform={`translate(${pan.x - (floorPlan.gridX[0]?.positionMeters || 0) * zoom}, ${pan.y - (floorPlan.gridY[0]?.positionMeters || 0) * zoom})`}
+              >
+                <rect width={zoom * 5} height={zoom * 5} fill="url(#cadGrid1m)" />
+                <path d={`M ${zoom * 5} 0 L 0 0 0 ${zoom * 5}`} fill="none" stroke="#0284c7" strokeWidth="1.2" opacity="0.35" />
               </pattern>
             </defs>
 
             {/* Canvas Background Grid */}
-            <rect id="cad-grid-bg" width="100%" height="100%" fill="url(#cadGrid1m)" />
+            <rect id="cad-grid-bg" width="100%" height="100%" fill="url(#cadGrid5m)" />
 
             <g transform={`translate(${pan.x}, ${pan.y})`}>
               {/* 1. Grid Lines X (Vertical lines: Grid A, B, C...) */}
@@ -2482,6 +2820,91 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                 );
               })()}
 
+              {/* Projected Extension Grid Lines X (เส้นร่างแนวตั้งเพิ่มขยายพื้นที่ขวา) */}
+              {projectedXPositions.map((projX) => {
+                const posX = (projX - (sortedGridX[0]?.positionMeters || 0)) * zoom;
+                const lineStartY = -40;
+                const lineEndY = extendedGridY * zoom + 40;
+
+                return (
+                  <g 
+                    key={`proj_x_${projX}`} 
+                    className="cursor-pointer group"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+                      const nextLabel = labels[sortedGridX.length] || `X${sortedGridX.length + 1}`;
+                      const newX: GridLineX = {
+                        id: `gx_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                        label: nextLabel,
+                        positionMeters: projX,
+                      };
+                      onChangeFloorPlan({
+                        ...floorPlan,
+                        gridX: [...floorPlan.gridX, newX],
+                      });
+                    }}
+                  >
+                    <title>{`คลิกเพื่อเพิ่มกริดลาย X แนวตั้งที่ตำแหน่ง ${projX}m`}</title>
+                    <line
+                      x1={posX}
+                      y1={lineStartY}
+                      x2={posX}
+                      y2={lineEndY}
+                      stroke="#0284c7"
+                      strokeWidth="1.2"
+                      strokeDasharray="4,4"
+                      opacity="0.35"
+                      className="group-hover:opacity-90 group-hover:stroke-sky-400 group-hover:stroke-[1.8] transition-all"
+                    />
+                    <circle
+                      cx={posX}
+                      cy={-35}
+                      r={12}
+                      fill="#0f172a"
+                      stroke="#0284c7"
+                      strokeWidth="1.2"
+                      strokeDasharray="2,2"
+                      opacity="0.5"
+                      className="group-hover:opacity-100 group-hover:stroke-sky-400 group-hover:fill-sky-950 transition-all"
+                    />
+                    <text
+                      x={posX}
+                      y={-31}
+                      textAnchor="middle"
+                      fill="#38bdf8"
+                      fontSize="10"
+                      opacity="0.6"
+                      className="group-hover:opacity-100 group-hover:fill-sky-300 font-mono transition-all"
+                    >
+                      +{projX}m
+                    </text>
+                    <circle
+                      cx={posX}
+                      cy={lineEndY + 15}
+                      r={12}
+                      fill="#0f172a"
+                      stroke="#0284c7"
+                      strokeWidth="1.2"
+                      strokeDasharray="2,2"
+                      opacity="0.5"
+                      className="group-hover:opacity-100 group-hover:stroke-sky-400 group-hover:fill-sky-950 transition-all"
+                    />
+                    <text
+                      x={posX}
+                      y={lineEndY + 19}
+                      textAnchor="middle"
+                      fill="#38bdf8"
+                      fontSize="10"
+                      opacity="0.6"
+                      className="group-hover:opacity-100 group-hover:fill-sky-300 font-mono transition-all"
+                    >
+                      +{projX}m
+                    </text>
+                  </g>
+                );
+              })}
+
               {/* 2. Grid Lines Y (Horizontal lines: Grid 1, 2, 3...) */}
               {sortedGridY.map((gy) => {
                 const posY = (gy.positionMeters - (sortedGridY[0]?.positionMeters || 0)) * zoom;
@@ -2665,6 +3088,99 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                 );
               })()}
 
+              {/* Projected Extension Grid Lines Y (เส้นร่างแนวนอนเพิ่มขยายพื้นที่ล่าง) */}
+              {projectedYPositions.map((projY) => {
+                const posY = (projY - (sortedGridY[0]?.positionMeters || 0)) * zoom;
+                const lineStartX = -40;
+                const lineEndX = extendedGridX * zoom + 40;
+
+                return (
+                  <g 
+                    key={`proj_y_${projY}`} 
+                    className="cursor-pointer group"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const newY: GridLineY = {
+                        id: `gy_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                        label: `${sortedGridY.length + projectedYPositions.indexOf(projY) + 1}`,
+                        positionMeters: projY,
+                      };
+                      onChangeFloorPlan({
+                        ...floorPlan,
+                        gridY: [...floorPlan.gridY, newY],
+                      });
+                    }}
+                  >
+                    <title>{`คลิกเพื่อเพิ่มกริดลาย Y แนวนอนที่ตำแหน่ง ${projY}m`}</title>
+                    <line
+                      x1={lineStartX}
+                      y1={posY}
+                      x2={lineEndX}
+                      y2={posY}
+                      stroke="#059669"
+                      strokeWidth="1.2"
+                      strokeDasharray="4,4"
+                      opacity="0.35"
+                      className="group-hover:opacity-90 group-hover:stroke-emerald-400 group-hover:stroke-[1.8] transition-all"
+                    />
+                    <circle
+                      cx={-35}
+                      cy={posY}
+                      r={12}
+                      fill="#0f172a"
+                      stroke="#059669"
+                      strokeWidth="1.2"
+                      strokeDasharray="2,2"
+                      opacity="0.5"
+                      className="group-hover:opacity-100 group-hover:stroke-emerald-400 group-hover:fill-emerald-950 transition-all"
+                    />
+                    <text
+                      x={-35}
+                      y={posY + 4}
+                      textAnchor="middle"
+                      fill="#34d399"
+                      fontSize="10"
+                      opacity="0.6"
+                      className="group-hover:opacity-100 group-hover:fill-emerald-300 font-mono transition-all"
+                    >
+                      +{projY}m
+                    </text>
+                    <circle
+                      cx={lineEndX + 15}
+                      cy={posY}
+                      r={12}
+                      fill="#0f172a"
+                      stroke="#059669"
+                      strokeWidth="1.2"
+                      strokeDasharray="2,2"
+                      opacity="0.5"
+                      className="group-hover:opacity-100 group-hover:stroke-emerald-400 group-hover:fill-emerald-950 transition-all"
+                    />
+                    <text
+                      x={lineEndX + 15}
+                      y={posY + 4}
+                      textAnchor="middle"
+                      fill="#34d399"
+                      fontSize="10"
+                      opacity="0.6"
+                      className="group-hover:opacity-100 group-hover:fill-emerald-300 font-mono transition-all"
+                    >
+                      +{projY}m
+                    </text>
+                    <text
+                      x={-54}
+                      y={posY + 3}
+                      textAnchor="end"
+                      fill="#64748b"
+                      fontSize="9"
+                      fontFamily="monospace"
+                    >
+                      {projY}m
+                    </text>
+                  </g>
+                );
+              })}
+
               {/* 3. Render Walls (เส้นผนัง) */}
               {floorPlan.walls.map((wall) => {
                 const x1 = wall.startX * zoom;
@@ -2688,7 +3204,9 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                   <g
                     key={wall.id}
                     onClick={(e) => {
+                      if (e.target !== e.currentTarget) return;
                       if (toolMode === 'wall') return;
+                      if (selectedWallId && selectedWallId !== wall.id) return;
                       if (toolMode === 'opening') {
                         e.stopPropagation();
                         handleWallClickToPlaceOpening(e, wall);
@@ -3297,6 +3815,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                     key={col.id}
                     onClick={(e) => {
                       if (toolMode === 'wall') return;
+                      if (selectedWallId) return;
                       e.stopPropagation();
                       setSelectedColId(col.id);
                       setSelectedWallId(null);
@@ -4220,6 +4739,91 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                     </div>
                   </div>
                 </div>
+
+                {/* 🧭 Expand Workspace & Grid Section */}
+                <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 space-y-3 text-xs">
+                  <span className="text-amber-400 font-bold block text-[12px] flex items-center gap-1.5">
+                    <Grid className="w-4 h-4 text-amber-400" />
+                    ขยายพื้นที่ทำงาน (Expand Workspace)
+                  </span>
+                  <p className="text-slate-400 text-[11px] leading-relaxed">
+                    คุณสามารถขยายพื้นที่ทำงานลงด้านล่าง (แกน Y) หรือขยายไปทางขวา (แกน X) ได้ง่ายๆ ด้วยปุ่มด้านล่างนี้:
+                  </p>
+                  
+                  <div className="space-y-2">
+                    {/* Add Y Grid (Expand Downwards) */}
+                    <div className="p-2 bg-slate-900 border border-emerald-800/40 rounded-lg space-y-2">
+                      <span className="text-emerald-400 font-semibold block text-[11px]">+ เพิ่มลายกริดแนวนอน (ขยายพื้นที่ลงข้างล่าง - แกน Y)</span>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <label className="text-slate-500 text-[10px] block mb-0.5">ระยะจากกริดสุดท้าย (ม.):</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={newGridYDist}
+                            onChange={(e) => setNewGridYDist(parseFloat(e.target.value) || 4.0)}
+                            className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono text-xs"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="text-slate-500 text-[10px] block mb-0.5">ชื่อลายกริด (Label):</label>
+                          <input
+                            type="text"
+                            value={newGridYLabel}
+                            onChange={(e) => setNewGridYLabel(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono text-xs"
+                          />
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAddGridY();
+                        }}
+                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-md"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>ขยายพื้นที่ด้านล่าง (+ เพิ่มกริด Y)</span>
+                      </button>
+                    </div>
+
+                    {/* Add X Grid (Expand Rightwards) */}
+                    <div className="p-2 bg-slate-900 border border-sky-800/40 rounded-lg space-y-2">
+                      <span className="text-sky-400 font-semibold block text-[11px]">+ เพิ่มลายกริดแนวตั้ง (ขยายพื้นที่ไปทางขวา - แกน X)</span>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <label className="text-slate-500 text-[10px] block mb-0.5">ระยะจากกริดสุดท้าย (ม.):</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={newGridXDist}
+                            onChange={(e) => setNewGridXDist(parseFloat(e.target.value) || 4.0)}
+                            className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono text-xs"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="text-slate-500 text-[10px] block mb-0.5">ชื่อลายกริด (Label):</label>
+                          <input
+                            type="text"
+                            value={newGridXLabel}
+                            onChange={(e) => setNewGridXLabel(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono text-xs"
+                          />
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAddGridX();
+                        }}
+                        className="w-full bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-md"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>ขยายพื้นที่ด้านขวา (+ เพิ่มกริด X)</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -4546,7 +5150,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
 
                   {openingTypeToAdd === 'window' && (
                     <div>
-                      <label className="text-slate-400 text-[10px] block mb-1">ความสูงสเต็ป/Sill (ซม.):</label>
+                      <label className="text-slate-400 text-[10px] block mb-1">ความสูงจากพื้นถึงขอบล่าง / Sill Height (ซม.):</label>
                       <input
                         type="number"
                         value={newOpeningSillHeightCm}
@@ -4874,6 +5478,77 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                   }}
                   className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono"
                 />
+              </div>
+
+              {/* 🚪 Switch Door / Window Type */}
+              <div>
+                <label className="text-slate-400 block mb-1">สลับประเภท (Type):</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedOpening.type !== 'door') {
+                        const preset = DOOR_PRESETS[0];
+                        onChangeFloorPlan({
+                          ...floorPlan,
+                          openings: floorPlan.openings.map((o) =>
+                            o.id === selectedOpening.id
+                              ? {
+                                  ...o,
+                                  type: 'door',
+                                  materialType: preset.label,
+                                  widthCm: preset.width,
+                                  heightCm: preset.height,
+                                  sillHeightCm: preset.sill,
+                                  notes: preset.label,
+                                }
+                              : o
+                          ),
+                        });
+                      }
+                    }}
+                    className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-md border text-[11px] font-medium transition-all ${
+                      selectedOpening.type === 'door'
+                        ? 'bg-sky-600 text-white border-sky-400 shadow-[0_0_6px_rgba(2,132,199,0.4)]'
+                        : 'bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-600'
+                    }`}
+                  >
+                    <DoorClosed className="w-3.5 h-3.5" />
+                    <span>ประตู</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedOpening.type !== 'window') {
+                        const preset = WINDOW_PRESETS[0];
+                        onChangeFloorPlan({
+                          ...floorPlan,
+                          openings: floorPlan.openings.map((o) =>
+                            o.id === selectedOpening.id
+                              ? {
+                                  ...o,
+                                  type: 'window',
+                                  materialType: preset.label,
+                                  widthCm: preset.width,
+                                  heightCm: preset.height,
+                                  sillHeightCm: preset.sill,
+                                  notes: `${preset.label}${preset.sill > 0 ? ` (Sill ${preset.sill} ซม.)` : ''}`,
+                                }
+                              : o
+                          ),
+                        });
+                      }
+                    }}
+                    className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-md border text-[11px] font-medium transition-all ${
+                      selectedOpening.type === 'window'
+                        ? 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.4)]'
+                        : 'bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-600'
+                    }`}
+                  >
+                    <AppWindow className="w-3.5 h-3.5" />
+                    <span>หน้าต่าง</span>
+                  </button>
+                </div>
               </div>
 
               {/* Material Type / Preset Dropdown */}
@@ -5554,7 +6229,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
               onTouchStart={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
               style={{ touchAction: 'pan-y' }}
-              className="w-full landscape:w-80 lg:w-80 h-auto max-h-[220px] sm:max-h-[260px] landscape:max-h-none lg:max-h-none landscape:h-full lg:h-full bg-slate-900 border-t landscape:border-t-0 lg:border-t-0 border-l-0 landscape:border-l lg:border-l border-slate-800 p-3 sm:p-4 flex flex-col overflow-y-auto shrink-0 z-20 shadow-lg"
+              className="w-full landscape:w-80 lg:w-80 mt-4 landscape:mt-0 lg:mt-0 h-auto max-h-[220px] sm:max-h-[260px] landscape:max-h-none lg:max-h-none landscape:h-full lg:h-full bg-slate-900 border-t landscape:border-t-0 lg:border-t-0 border-l-0 landscape:border-l lg:border-l border-slate-800 p-3 sm:p-4 flex flex-col overflow-y-auto shrink-0 z-20 shadow-lg"
             >
               {inspectorContent}
             </div>
