@@ -1903,18 +1903,18 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
         </div>
 
         {/* Mobile Floating Tool Menu Toggle & Drawer */}
-        <div className="absolute top-3 left-3 z-30 lg:hidden">
+        <div className="fixed bottom-6 left-4 z-40 lg:hidden">
           <button
             onClick={() => setMobileToolsOpen(!mobileToolsOpen)}
             className="bg-slate-900/95 hover:bg-slate-800 text-slate-200 border border-slate-700 px-3 py-2 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-bold transition-all backdrop-blur"
           >
             <Wrench className="w-4 h-4 text-blue-400" />
             <span>เครื่องมือ ({toolMode === 'select' ? 'เลือก' : toolMode === 'pan' ? 'เลื่อน' : toolMode === 'column' ? 'เสา' : toolMode === 'wall' ? 'ผนัง' : toolMode === 'opening' ? 'ประตู/หน้าต่าง' : toolMode === 'defect' ? 'พินรูปถ่าย' : toolMode === 'room' ? 'หมุดห้อง' : 'กริด'})</span>
-            <ChevronRight className={`w-3.5 h-3.5 transition-transform ${mobileToolsOpen ? 'rotate-90' : ''}`} />
+            <ChevronRight className={`w-3.5 h-3.5 transition-transform ${mobileToolsOpen ? '-rotate-90' : ''}`} />
           </button>
 
           {mobileToolsOpen && (
-            <div className="absolute top-12 left-0 bg-slate-900/95 border border-slate-700 rounded-2xl p-2 shadow-2xl backdrop-blur flex flex-col gap-1.5 w-44 max-h-[70vh] overflow-y-auto">
+            <div className="absolute bottom-full mb-2 left-0 bg-slate-900/95 border border-slate-700 rounded-2xl p-2 shadow-2xl backdrop-blur flex flex-col gap-1.5 w-44 max-h-[70vh] overflow-y-auto">
               <div className="flex items-center justify-between px-2 py-1 border-b border-slate-800 mb-1">
                 <span className="text-[11px] font-bold text-slate-300">เครื่องมือวาด</span>
                 <button onClick={() => setMobileToolsOpen(false)} className="text-slate-400 hover:text-white text-xs font-bold px-1">✕</button>
@@ -2061,7 +2061,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
         </div>
 
         {/* Mobile Floating Inspector Toggle Button */}
-        <div className="absolute top-3 right-3 z-30 lg:hidden">
+        <div className="fixed bottom-6 right-4 z-40 lg:hidden">
           <button
             onClick={() => setMobileInspectorOpen(!mobileInspectorOpen)}
             className={`relative bg-slate-900/95 hover:bg-slate-800 text-slate-200 border px-3 py-2 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-bold transition-all backdrop-blur ${
@@ -2092,7 +2092,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
           }`}
         >
           {/* Active Tool Tip Badge & Hover Coordinates Indicator */}
-          <div className="absolute top-3 left-3 z-10 bg-slate-900/90 backdrop-blur border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs flex items-center gap-3 shadow-lg">
+          <div className="hidden md:flex absolute top-3 left-3 z-10 bg-slate-900/90 backdrop-blur border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs items-center gap-3 shadow-lg">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-slate-300 font-medium">
@@ -5215,10 +5215,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-slate-400 block mb-0.5">ชดเชยความกว้าง ± (ม.):</label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      placeholder="เช่น -0.5 หรือ 1.0"
+                    <select
                       value={selectedRoom.widthOffset || 0}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 0;
@@ -5229,15 +5226,24 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                           ),
                         });
                       }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-slate-100 font-mono text-xs"
-                    />
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono text-xs"
+                    >
+                      <option value="0">0</option>
+                      <option value="0.15">+0.15</option>
+                      <option value="0.125">+0.125</option>
+                      <option value="0.1">+0.1</option>
+                      <option value="0.075">+0.075</option>
+                      <option value="0.05">+0.05</option>
+                      <option value="-0.05">-0.05</option>
+                      <option value="-0.075">-0.075</option>
+                      <option value="-0.1">-0.1</option>
+                      <option value="-0.125">-0.125</option>
+                      <option value="-0.15">-0.15</option>
+                    </select>
                   </div>
                   <div>
                     <label className="text-[10px] text-slate-400 block mb-0.5">ชดเชยความลึก ± (ม.):</label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      placeholder="เช่น -0.5 หรือ 1.0"
+                    <select
                       value={selectedRoom.depthOffset || 0}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 0;
@@ -5248,17 +5254,26 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                           ),
                         });
                       }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-slate-100 font-mono text-xs"
-                    />
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono text-xs"
+                    >
+                      <option value="0">0</option>
+                      <option value="0.15">+0.15</option>
+                      <option value="0.125">+0.125</option>
+                      <option value="0.1">+0.1</option>
+                      <option value="0.075">+0.075</option>
+                      <option value="0.05">+0.05</option>
+                      <option value="-0.05">-0.05</option>
+                      <option value="-0.075">-0.075</option>
+                      <option value="-0.1">-0.1</option>
+                      <option value="-0.125">-0.125</option>
+                      <option value="-0.15">-0.15</option>
+                    </select>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-2 mt-2">
                   <div>
                     <label className="text-[10px] text-slate-400 block mb-0.5">ชดเชยรอบผนัง ± (ม.):</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="เช่น -2 หรือ 3"
+                    <select
                       value={selectedRoom.wallLengthOffset || 0}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 0;
@@ -5269,8 +5284,20 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                           ),
                         });
                       }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-slate-100 font-mono text-xs"
-                    />
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono text-xs"
+                    >
+                      <option value="0">0</option>
+                      <option value="0.15">+0.15</option>
+                      <option value="0.125">+0.125</option>
+                      <option value="0.1">+0.1</option>
+                      <option value="0.075">+0.075</option>
+                      <option value="0.05">+0.05</option>
+                      <option value="-0.05">-0.05</option>
+                      <option value="-0.075">-0.075</option>
+                      <option value="-0.1">-0.1</option>
+                      <option value="-0.125">-0.125</option>
+                      <option value="-0.15">-0.15</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -5350,7 +5377,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
               {/* Mobile Floating Bottom Sheet Modal */}
               {mobileInspectorOpen && (
                 <div
-                  className="absolute inset-0 z-40 lg:hidden flex items-end bg-slate-950/60 backdrop-blur-xs transition-opacity"
+                  className="fixed inset-0 z-50 lg:hidden flex items-end bg-slate-950/60 backdrop-blur-xs transition-opacity"
                   onClick={() => setMobileInspectorOpen(false)}
                 >
                   <div
