@@ -69,10 +69,102 @@ export default function App() {
   };
 
   const setFloorPlan = (updated: FloorPlanData) => {
-    setFloorPlansMap((prev) => ({
-      ...prev,
-      [activeFloorId]: updated,
-    }));
+    const currentFloor = floorPlansMap[activeFloorId];
+    if (!currentFloor) {
+      setFloorPlansMap((prev) => ({ ...prev, [activeFloorId]: updated }));
+      return;
+    }
+
+    const gridXChanged = JSON.stringify(currentFloor.gridX) !== JSON.stringify(updated.gridX);
+    const gridYChanged = JSON.stringify(currentFloor.gridY) !== JSON.stringify(updated.gridY);
+    const columnsChanged = JSON.stringify(currentFloor.columns) !== JSON.stringify(updated.columns);
+
+    if (gridXChanged || gridYChanged || columnsChanged) {
+      // Sync grid lines and columns across all floors and handle element adjustments
+      setFloorPlansMap((prev) => {
+        const next = { ...prev };
+        
+        // Detect if a grid line was moved (shift)
+        let xShift = { pos: -1, delta: 0 };
+        if (gridXChanged) {
+          for (let i = 0; i < updated.gridX.length; i++) {
+            const oldG = currentFloor.gridX.find(g => g.id === updated.gridX[i].id);
+            if (oldG && oldG.positionMeters !== updated.gridX[i].positionMeters) {
+              xShift = { pos: oldG.positionMeters, delta: updated.gridX[i].positionMeters - oldG.positionMeters };
+              break;
+            }
+          }
+        }
+
+        let yShift = { pos: -1, delta: 0 };
+        if (gridYChanged) {
+          for (let i = 0; i < updated.gridY.length; i++) {
+            const oldG = currentFloor.gridY.find(g => g.id === updated.gridY[i].id);
+            if (oldG && oldG.positionMeters !== updated.gridY[i].positionMeters) {
+              yShift = { pos: oldG.positionMeters, delta: updated.gridY[i].positionMeters - oldG.positionMeters };
+              break;
+            }
+          }
+        }
+
+        // Detect if a grid line was deleted
+        const deletedX = gridXChanged ? currentFloor.gridX.filter(oldG => !updated.gridX.some(newG => newG.id === oldG.id)) : [];
+        const deletedY = gridYChanged ? currentFloor.gridY.filter(oldG => !updated.gridY.some(newG => newG.id === oldG.id)) : [];
+
+        Object.keys(next).forEach((floorId) => {
+          if (floorId === activeFloorId) {
+            next[floorId] = updated;
+          } else {
+            let floor = { ...next[floorId] };
+            floor.gridX = updated.gridX;
+            floor.gridY = updated.gridY;
+            floor.columns = updated.columns; // Columns are shared structural elements
+
+            // Handle shifts on other floors for elements that aren't synced (walls, defects)
+            if (xShift.pos !== -1) {
+              floor.walls = floor.walls.map(w => {
+                let sx = w.startX; let ex = w.endX;
+                if (sx >= xShift.pos - 0.01) sx = Math.round((sx + xShift.delta) * 100) / 100;
+                if (ex >= xShift.pos - 0.01) ex = Math.round((ex + xShift.delta) * 100) / 100;
+                return { ...w, startX: sx, endX: ex };
+              });
+              floor.defectPins = (floor.defectPins || []).map(p => p.x >= xShift.pos - 0.01 ? { ...p, x: Math.round((p.x + xShift.delta) * 100) / 100 } : p);
+            }
+            if (yShift.pos !== -1) {
+              floor.walls = floor.walls.map(w => {
+                let sy = w.startY; let ey = w.endY;
+                if (sy >= yShift.pos - 0.01) sy = Math.round((sy + yShift.delta) * 100) / 100;
+                if (ey >= yShift.pos - 0.01) ey = Math.round((ey + yShift.delta) * 100) / 100;
+                return { ...w, startY: sy, endY: ey };
+              });
+              floor.defectPins = (floor.defectPins || []).map(p => p.y >= yShift.pos - 0.01 ? { ...p, y: Math.round((p.y + yShift.delta) * 100) / 100 } : p);
+            }
+
+            // Handle grid deletions on other floors
+            deletedX.forEach(dg => {
+              const remainingWallIds = floor.walls.filter(w => Math.abs(w.startX - dg.positionMeters) > 0.15 && Math.abs(w.endX - dg.positionMeters) > 0.15).map(w => w.id);
+              floor.walls = floor.walls.filter(w => remainingWallIds.includes(w.id));
+              floor.openings = floor.openings.filter(o => remainingWallIds.includes(o.wallId));
+              floor.defectPins = (floor.defectPins || []).filter(p => Math.abs(p.x - dg.positionMeters) > 0.15);
+            });
+            deletedY.forEach(dg => {
+              const remainingWallIds = floor.walls.filter(w => Math.abs(w.startY - dg.positionMeters) > 0.15 && Math.abs(w.endY - dg.positionMeters) > 0.15).map(w => w.id);
+              floor.walls = floor.walls.filter(w => remainingWallIds.includes(w.id));
+              floor.openings = floor.openings.filter(o => remainingWallIds.includes(o.wallId));
+              floor.defectPins = (floor.defectPins || []).filter(p => Math.abs(p.y - dg.positionMeters) > 0.15);
+            });
+
+            next[floorId] = floor;
+          }
+        });
+        return next;
+      });
+    } else {
+      setFloorPlansMap((prev) => ({
+        ...prev,
+        [activeFloorId]: updated,
+      }));
+    }
   };
 
   const handleSelectFloor = (floorId: string) => {

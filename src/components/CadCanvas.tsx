@@ -462,7 +462,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
     const newWalls: WallItem[] = [];
 
     // ผนังแนวนอน (Horizontal walls)
-    sortedY.forEach((gy) => {
+    sortedY.forEach((gy, indexY) => {
       for (let i = 0; i < sortedX.length - 1; i++) {
         const gx1 = sortedX[i];
         const gx2 = sortedX[i + 1];
@@ -494,7 +494,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
     });
 
     // ผนังแนวตั้ง (Vertical walls)
-    sortedX.forEach((gx) => {
+    sortedX.forEach((gx, indexX) => {
       for (let j = 0; j < sortedY.length - 1; j++) {
         const gy1 = sortedY[j];
         const gy2 = sortedY[j + 1];
@@ -1341,43 +1341,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
               endY: newEndY,
             };
           }
-
-          let wsX = w.startX;
-          let wsY = w.startY;
-          let weX = w.endX;
-          let weY = w.endY;
-          let modified = false;
-
-          if (Math.abs(w.startX - oldStartX) < EPS && Math.abs(w.startY - oldStartY) < EPS) {
-            wsX = Math.round((w.startX + dStartX) * 20) / 20;
-            wsY = Math.round((w.startY + dStartY) * 20) / 20;
-            modified = true;
-          } else if (Math.abs(w.startX - oldEndX) < EPS && Math.abs(w.startY - oldEndY) < EPS) {
-            wsX = Math.round((w.startX + dEndX) * 20) / 20;
-            wsY = Math.round((w.startY + dEndY) * 20) / 20;
-            modified = true;
-          }
-
-          if (Math.abs(w.endX - oldStartX) < EPS && Math.abs(w.endY - oldStartY) < EPS) {
-            weX = Math.round((w.endX + dStartX) * 20) / 20;
-            weY = Math.round((w.endY + dStartY) * 20) / 20;
-            modified = true;
-          } else if (Math.abs(w.endX - oldEndX) < EPS && Math.abs(w.endY - oldEndY) < EPS) {
-            weX = Math.round((w.endX + dEndX) * 20) / 20;
-            weY = Math.round((w.endY + dEndY) * 20) / 20;
-            modified = true;
-          }
-
-          if (modified) {
-            return {
-              ...w,
-              startX: wsX,
-              startY: wsY,
-              endX: weX,
-              endY: weY,
-            };
-          }
-
           return w;
         })
       });
@@ -2655,6 +2618,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                       strokeWidth="1.5"
                       strokeDasharray="6,4"
                       opacity="0.8"
+                      style={{ pointerEvents: 'none' }}
                     />
                     {/* Top Grid Bubble */}
                     <circle cx={posX} cy={-35} r={16} fill="#0f172a" stroke="#0284c7" strokeWidth="2" />
@@ -2923,6 +2887,7 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                       strokeWidth="1.5"
                       strokeDasharray="6,4"
                       opacity="0.8"
+                      style={{ pointerEvents: 'none' }}
                     />
                     {/* Left Grid Bubble */}
                     <circle cx={-35} cy={posY} r={16} fill="#0f172a" stroke="#0284c7" strokeWidth="2" />
@@ -3204,7 +3169,6 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                   <g
                     key={wall.id}
                     onClick={(e) => {
-                      if (e.target !== e.currentTarget) return;
                       if (toolMode === 'wall') return;
                       if (selectedWallId && selectedWallId !== wall.id) return;
                       if (toolMode === 'opening') {
@@ -3225,6 +3189,16 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                     }}
                     className="cursor-pointer group"
                   >
+                    {/* Invisible Wider Hit Area for better click target */}
+                    <line
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                      stroke="transparent"
+                      strokeWidth={Math.max(thicknessPx, 20)}
+                      className="cursor-pointer"
+                    />
                     {/* Base Thick Wall Line */}
                     <line
                       x1={x1}
@@ -3244,178 +3218,19 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
                       return null;
                     })()}
 
-                    {/* Selection outline and drag handles */}
+                    {/* Selection outline (Base shadow effect) */}
                     {isSelected && (
-                      <>
-                        <line
-                          x1={x1}
-                          y1={y1}
-                          x2={x2}
-                          y2={y2}
-                          stroke="#f59e0b"
-                          strokeWidth={Math.max(thicknessPx, 6) + 4}
-                          strokeDasharray="4,4"
-                          fill="none"
-                        />
-                        {/* Start handle */}
-                        <circle
-                          cx={x1}
-                          cy={y1}
-                          r={6}
-                          fill="#f59e0b"
-                          stroke="#ffffff"
-                          strokeWidth="2"
-                          onMouseDown={(e) => handleStartDragWallHandle(e, wall, 'start')}
-                          onTouchStart={(e) => handleStartDragWallHandle(e, wall, 'start')}
-                          onClick={(e) => e.stopPropagation()}
-                          className="cursor-pointer hover:scale-125 transition-transform"
-                        />
-                        {/* End handle */}
-                        <circle
-                          cx={x2}
-                          cy={y2}
-                          r={6}
-                          fill="#f59e0b"
-                          stroke="#ffffff"
-                          strokeWidth="2"
-                          onMouseDown={(e) => handleStartDragWallHandle(e, wall, 'end')}
-                          onTouchStart={(e) => handleStartDragWallHandle(e, wall, 'end')}
-                          onClick={(e) => e.stopPropagation()}
-                          className="cursor-pointer hover:scale-125 transition-transform"
-                        />
-
-                        {/* Nearest columns or walls dimension lines */}
-                        {(() => {
-                          const mx = (wall.startX + wall.endX) / 2;
-                          const my = (wall.startY + wall.endY) / 2;
-                          const mxPx = mx * zoom;
-                          const myPx = my * zoom;
-
-                          let minXDist = Infinity;
-                          let nearestX = 0;
-                          let minYDist = Infinity;
-                          let nearestY = 0;
-
-                          // Check columns
-                          floorPlan.columns.forEach((col) => {
-                            const w2 = (col.widthCm / 2) / 100;
-                            const d2 = (col.depthCm / 2) / 100;
-                            const xCoords = [col.x - w2, col.x, col.x + w2];
-                            const yCoords = [col.y - d2, col.y, col.y + d2];
-
-                            xCoords.forEach((cx) => {
-                              const dist = Math.abs(cx - mx);
-                              if (dist > 0.01 && dist < minXDist) {
-                                minXDist = dist;
-                                nearestX = cx;
-                              }
-                            });
-
-                            yCoords.forEach((cy) => {
-                              const dist = Math.abs(cy - my);
-                              if (dist > 0.01 && dist < minYDist) {
-                                minYDist = dist;
-                                nearestY = cy;
-                              }
-                            });
-                          });
-
-                          // Check other walls
-                          floorPlan.walls.forEach((other) => {
-                            if (other.id === wall.id) return;
-                            const xCoords = [other.startX, other.endX, (other.startX + other.endX) / 2];
-                            const yCoords = [other.startY, other.endY, (other.startY + other.endY) / 2];
-
-                            xCoords.forEach((cx) => {
-                              const dist = Math.abs(cx - mx);
-                              if (dist > 0.01 && dist < minXDist) {
-                                minXDist = dist;
-                                nearestX = cx;
-                              }
-                            });
-
-                            yCoords.forEach((cy) => {
-                              const dist = Math.abs(cy - my);
-                              if (dist > 0.01 && dist < minYDist) {
-                                minYDist = dist;
-                                nearestY = cy;
-                              }
-                            });
-                          });
-
-                          const showX = minXDist > 0.02 && minXDist < 6.0;
-                          const showY = minYDist > 0.02 && minYDist < 6.0;
-
-                          return (
-                            <>
-                              {showX && (
-                                <g className="pointer-events-none select-none">
-                                  {/* Horizontal Dimension line along X axis to nearest vertical edge */}
-                                  <line
-                                    x1={mxPx}
-                                    y1={myPx}
-                                    x2={nearestX * zoom}
-                                    y2={myPx}
-                                    stroke="#ef4444"
-                                    strokeWidth="1.5"
-                                    strokeDasharray="3,3"
-                                  />
-                                  {/* Left & Right tick marks */}
-                                  <line x1={mxPx} y1={myPx - 4} x2={mxPx} y2={myPx + 4} stroke="#ef4444" strokeWidth="1.5" />
-                                  <line x1={nearestX * zoom} y1={myPx - 4} x2={nearestX * zoom} y2={myPx + 4} stroke="#ef4444" strokeWidth="1.5" />
-                                  {/* Dimension text */}
-                                  <text
-                                    x={(mxPx + nearestX * zoom) / 2}
-                                    y={myPx - 7}
-                                    fill="#ef4444"
-                                    fontSize="10"
-                                    fontWeight="extrabold"
-                                    fontFamily="monospace"
-                                    textAnchor="middle"
-                                    stroke="#020617"
-                                    strokeWidth="3.5"
-                                    paintOrder="stroke"
-                                  >
-                                    {minXDist.toFixed(2)}m
-                                  </text>
-                                </g>
-                              )}
-                              {showY && (
-                                <g className="pointer-events-none select-none">
-                                  {/* Vertical Dimension line along Y axis to nearest horizontal edge */}
-                                  <line
-                                    x1={mxPx}
-                                    y1={myPx}
-                                    x2={mxPx}
-                                    y2={nearestY * zoom}
-                                    stroke="#ef4444"
-                                    strokeWidth="1.5"
-                                    strokeDasharray="3,3"
-                                  />
-                                  {/* Top & Bottom tick marks */}
-                                  <line x1={mxPx - 4} y1={myPx} x2={mxPx + 4} y2={myPx} stroke="#ef4444" strokeWidth="1.5" />
-                                  <line x1={mxPx - 4} y1={nearestY * zoom} x2={mxPx + 4} y2={nearestY * zoom} stroke="#ef4444" strokeWidth="1.5" />
-                                  {/* Dimension text */}
-                                  <text
-                                    x={mxPx + 7}
-                                    y={(myPx + nearestY * zoom) / 2}
-                                    fill="#ef4444"
-                                    fontSize="10"
-                                    fontWeight="extrabold"
-                                    fontFamily="monospace"
-                                    alignmentBaseline="middle"
-                                    stroke="#020617"
-                                    strokeWidth="3.5"
-                                    paintOrder="stroke"
-                                  >
-                                    {minYDist.toFixed(2)}m
-                                  </text>
-                                </g>
-                              )}
-                            </>
-                          );
-                        })()}
-                      </>
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        stroke="#f59e0b"
+                        strokeWidth={Math.max(thicknessPx, 6) + 4}
+                        strokeDasharray="4,4"
+                        fill="none"
+                        opacity="0.5"
+                      />
                     )}
 
                     {/* Wall-to-Grid guidelines (แสดงระยะจากกริดลายเมื่อเลือกหรือเลื่อนผนัง หรือแสดงตลอดเวลา) */}
@@ -4460,6 +4275,137 @@ export const CadCanvas: React.FC<CadCanvasProps> = ({ floorPlan, onChangeFloorPl
               })()}
             </g>
           </svg>
+          {/* 8. Render Selected Wall Handles (rendered last to stay on top) */}
+          {(() => {
+            if (!selectedWallId) return null;
+            const wall = floorPlan.walls.find(w => w.id === selectedWallId);
+            if (!wall) return null;
+
+            const x1 = wall.startX * zoom;
+            const y1 = wall.startY * zoom;
+            const x2 = wall.endX * zoom;
+            const y2 = wall.endY * zoom;
+            const thicknessPx = (wall.thicknessCm / 100) * zoom;
+
+            return (
+              <svg 
+                className="absolute inset-0 pointer-events-none" 
+                style={{ width: '100%', height: '100%', overflow: 'visible' }}
+              >
+                <g transform={`translate(${pan.x}, ${pan.y})`}>
+                  <line
+                    x1={x1}
+                    y1={y1}
+                    x2={x2}
+                    y2={y2}
+                    stroke="#f59e0b"
+                    strokeWidth={Math.max(thicknessPx, 6) + 4}
+                    strokeDasharray="4,4"
+                    fill="none"
+                    opacity="0.3"
+                  />
+                  {/* Start handle */}
+                  <circle
+                    cx={x1}
+                    cy={y1}
+                    r={8}
+                    fill="#f59e0b"
+                    stroke="#ffffff"
+                    strokeWidth="2.5"
+                    onMouseDown={(e) => handleStartDragWallHandle(e, wall, 'start')}
+                    onTouchStart={(e) => handleStartDragWallHandle(e, wall, 'start')}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ pointerEvents: 'auto' }}
+                    className="cursor-pointer hover:scale-125 transition-transform"
+                  />
+                  {/* End handle */}
+                  <circle
+                    cx={x2}
+                    cy={y2}
+                    r={8}
+                    fill="#f59e0b"
+                    stroke="#ffffff"
+                    strokeWidth="2.5"
+                    onMouseDown={(e) => handleStartDragWallHandle(e, wall, 'end')}
+                    onTouchStart={(e) => handleStartDragWallHandle(e, wall, 'end')}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ pointerEvents: 'auto' }}
+                    className="cursor-pointer hover:scale-125 transition-transform"
+                  />
+
+                  {/* Nearest dimensions */}
+                  {(() => {
+                    const mx = (wall.startX + wall.endX) / 2;
+                    const my = (wall.startY + wall.endY) / 2;
+                    const mxPx = mx * zoom;
+                    const myPx = my * zoom;
+
+                    let minXDist = Infinity;
+                    let nearestX = 0;
+                    let minYDist = Infinity;
+                    let nearestY = 0;
+
+                    floorPlan.columns.forEach((col) => {
+                      const w2 = (col.widthCm / 2) / 100;
+                      const d2 = (col.depthCm / 2) / 100;
+                      const xCoords = [col.x - w2, col.x, col.x + w2];
+                      const yCoords = [col.y - d2, col.y, col.y + d2];
+                      xCoords.forEach((cx) => {
+                        const dist = Math.abs(cx - mx);
+                        if (dist > 0.01 && dist < minXDist) { minXDist = dist; nearestX = cx; }
+                      });
+                      yCoords.forEach((cy) => {
+                        const dist = Math.abs(cy - my);
+                        if (dist > 0.01 && dist < minYDist) { minYDist = dist; nearestY = cy; }
+                      });
+                    });
+
+                    floorPlan.walls.forEach((other) => {
+                      if (other.id === wall.id) return;
+                      const xCoords = [other.startX, other.endX, (other.startX + other.endX) / 2];
+                      const yCoords = [other.startY, other.endY, (other.startY + other.endY) / 2];
+                      xCoords.forEach((cx) => {
+                        const dist = Math.abs(cx - mx);
+                        if (dist > 0.01 && dist < minXDist) { minXDist = dist; nearestX = cx; }
+                      });
+                      yCoords.forEach((cy) => {
+                        const dist = Math.abs(cy - my);
+                        if (dist > 0.01 && dist < minYDist) { minYDist = dist; nearestY = cy; }
+                      });
+                    });
+
+                    const showX = minXDist > 0.02 && minXDist < 6.0;
+                    const showY = minYDist > 0.02 && minYDist < 6.0;
+
+                    return (
+                      <>
+                        {showX && (
+                          <g>
+                            <line x1={mxPx} y1={myPx} x2={nearestX * zoom} y2={myPx} stroke="#ef4444" strokeWidth="2" strokeDasharray="3,3" />
+                            <line x1={mxPx} y1={myPx - 6} x2={mxPx} y2={myPx + 6} stroke="#ef4444" strokeWidth="2" />
+                            <line x1={nearestX * zoom} y1={myPx - 6} x2={nearestX * zoom} y2={myPx + 6} stroke="#ef4444" strokeWidth="2" />
+                            <text x={(mxPx + nearestX * zoom) / 2} y={myPx - 10} fill="#ef4444" fontSize="12" fontWeight="extrabold" textAnchor="middle" stroke="#020617" strokeWidth="4" paintOrder="stroke">
+                              {minXDist.toFixed(2)}m
+                            </text>
+                          </g>
+                        )}
+                        {showY && (
+                          <g>
+                            <line x1={mxPx} y1={myPx} x2={mxPx} y2={nearestY * zoom} stroke="#ef4444" strokeWidth="2" strokeDasharray="3,3" />
+                            <line x1={mxPx - 6} y1={myPx} x2={mxPx + 6} y2={myPx} stroke="#ef4444" strokeWidth="2" />
+                            <line x1={mxPx - 6} y1={nearestY * zoom} x2={mxPx + 6} y2={nearestY * zoom} stroke="#ef4444" strokeWidth="2" />
+                            <text x={mxPx + 10} y={(myPx + nearestY * zoom) / 2} fill="#ef4444" fontSize="12" fontWeight="extrabold" textAnchor="start" stroke="#020617" strokeWidth="4" paintOrder="stroke">
+                              {minYDist.toFixed(2)}m
+                            </text>
+                          </g>
+                        )}
+                      </>
+                    );
+                  })()}
+                </g>
+              </svg>
+            );
+          })()}
         </div>
 
         {/* Right Inspector Side Panel / Tool Drawer: Desktop Sidebar & Mobile Bottom Sheet Modal */}
